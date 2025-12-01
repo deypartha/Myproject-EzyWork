@@ -4,6 +4,7 @@ import { Routes, Route } from "react-router-dom"; // Added for routing
 import "./App.css";
 import WorkerImage from "../Photos/Worker.png";
 import WorkerDetails from "./WorkerDetails"; // Import WorkerDetails component
+import Sign from "./Sign";
 
 function App() {
   const [email, setEmail] = useState("");
@@ -50,11 +51,11 @@ function App() {
             you with trusted local professionals in seconds using AI-powered matching.
           </p>
           <div className="flex gap-4">
-            <button onClick={()=>navigate("/user")} className="bg-[#0b2545] text-white px-5 py-3 rounded-md hover:bg-[#14365b]">
-               Find a Worker
+            <button onClick={() => navigate("/user")} className="bg-[#0b2545] text-white px-5 py-3 rounded-md hover:bg-[#14365b]">
+              Find a Worker
             </button>
             <button onClick={() => navigate("/sign")} className="bg-gray-200 text-[#0b2545] px-5 py-3 rounded-md hover:bg-gray-300">
-               Join as a Worker
+              Join as a Worker
             </button>
           </div>
         </div>
@@ -144,6 +145,7 @@ function App() {
 
       {/* Routes */}
       <Routes>
+        <Route path="/sign" element={<Sign />} />
         <Route path="/worker-details" element={<WorkerDetails />} />
         {/* Add other routes here */}
       </Routes>
