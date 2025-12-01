@@ -1,4 +1,4 @@
-import fs from 'fs';
+
 
 // Simple placeholder controller that accepts an uploaded audio file and returns
 // a mock transcription / translation. Replace with real STT + translation logic.
