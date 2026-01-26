@@ -9,11 +9,13 @@ import Worker from "./Worker.jsx";
 import Sign from "./Sign"; // Import Sign component
 import WorkerDetails from "./WorkerDetails"; // Import WorkerDetails component
 import Payment from "./Payment.jsx";
+import Navbar from "./Navbar.jsx";
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>
     <BrowserRouter>
       <Routes>
+        {/* <Route path='/' /> */}
         <Route path="/" element={<App />} />
         <Route path="/authentication" element={<Authentication />} />
         <Route path="/user" element={<User />} />

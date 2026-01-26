@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { FaMicrophone, FaCamera, FaStar, FaMapMarkerAlt } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
+import Navbar from "./Navbar";
 
 function User() {
   const [step, setStep] = useState(1);
@@ -17,8 +18,11 @@ function User() {
   const [interimTranscript, setInterimTranscript] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const [detectedLanguage, setDetectedLanguage] = useState(null);
+  const [capturedImage, setCapturedImage] = useState(null);
+  const [isAnalyzingImage, setIsAnalyzingImage] = useState(false);
   const mediaStreamRef = useRef(null);
   const videoRef = useRef(null);
+  const canvasRef = useRef(null);
   const recognitionRef = useRef(null);
   const finalTranscriptRef = useRef("");
   const mediaRecorderRef = useRef(null);
@@ -174,6 +178,60 @@ function User() {
     }
     setIsCameraOn(false);
     setIsMicOn(false);
+  };
+
+  // Capture photo from video stream
+  const capturePhoto = () => {
+    if (!videoRef.current) return;
+    
+    const canvas = document.createElement('canvas');
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(videoRef.current, 0, 0);
+    
+    // Convert to blob and store
+    canvas.toBlob(async (blob) => {
+      const imageUrl = URL.createObjectURL(blob);
+      setCapturedImage(imageUrl);
+      
+      // Send to AI for analysis
+      await analyzeImageWithAI(blob);
+    }, 'image/jpeg', 0.95);
+  };
+
+  // Send captured image to AI for problem detection
+  const analyzeImageWithAI = async (imageBlob) => {
+    setIsAnalyzingImage(true);
+    try {
+      const formData = new FormData();
+      formData.append('image', imageBlob, 'problem.jpg');
+      
+      // Send to backend AI endpoint
+      const res = await fetch('/api/analyze-image', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (res.ok) {
+        const json = await res.json();
+        // json should have { description: '...', detectedProblem: '...' }
+        if (json.description) {
+          setProblem(prev => {
+            const newText = json.description;
+            return prev ? `${prev}\n\n[From Image]: ${newText}` : newText;
+          });
+        }
+      } else {
+        console.warn('Image analysis failed');
+        setProblem(prev => prev + '\n\n[Image captured - Click Next to proceed]');
+      }
+    } catch (err) {
+      console.error('Image analysis error:', err);
+      setProblem(prev => prev + '\n\n[Image captured - Click Next to proceed]');
+    } finally {
+      setIsAnalyzingImage(false);
+    }
   };
 
   const stopAudioTracks = () => {
@@ -348,23 +406,7 @@ function User() {
   return (
     <div className="min-h-screen bg-[#f8fafc] flex flex-col items-center px-6 md:px-16">
       {/* Header */}
-      <header className="w-full flex justify-between items-center py-6 max-w-7xl">
-        <h1 className="text-2xl font-bold text-[#0b2545]">EzyWork</h1>
-        <nav className="flex gap-8 text-gray-700">
-          <button
-            onClick={() => setStep(5)}
-            className="hover:text-black font-medium"
-          >
-            History
-          </button>
-          <button
-            onClick={() => setStep(6)}
-            className="hover:text-black font-medium"
-          >
-            Pending
-          </button>
-        </nav>
-      </header>
+      <Navbar />
 
       {/* Step 1: Problem Description */}
       {step === 1 && (
@@ -419,8 +461,52 @@ function User() {
           {/* Video preview */}
           {isCameraOn && (
             <div className="mt-4">
-              <video ref={videoRef} className="w-full h-56 md:h-64 object-cover rounded-md border" autoPlay muted />
-              <div className="text-sm text-gray-500 mt-2">Camera is on — preview shown above. Click camera button again to stop.</div>
+              <video ref={videoRef} className="w-full h-56 md:h-64 object-cover rounded-md border border-gray-300 bg-gray-900" autoPlay muted />
+              <div className="flex items-center justify-between mt-3">
+                <div className="text-sm text-gray-500">Camera is on — preview shown above</div>
+                <button
+                  onClick={capturePhoto}
+                  disabled={isAnalyzingImage}
+                  className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-semibold flex items-center gap-2"
+                >
+                  {isAnalyzingImage ? (
+                    <>
+                      <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Analyzing...
+                    </>
+                  ) : (
+                    <>
+                      <FaCamera />
+                      Capture Photo
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
+          
+          {/* Captured image preview */}
+          {capturedImage && (
+            <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-md">
+              <div className="flex items-start gap-4">
+                <img src={capturedImage} alt="Captured" className="w-32 h-32 object-cover rounded-md border border-gray-300" />
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-green-600 font-semibold">✓ Photo Captured</span>
+                    <button
+                      onClick={() => setCapturedImage(null)}
+                      className="text-sm text-red-600 hover:text-red-800 underline"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  <p className="text-sm text-gray-600">
+                    {isAnalyzingImage 
+                      ? "AI is analyzing your image to detect the problem..." 
+                      : "Image has been analyzed and added to your problem description."}
+                  </p>
+                </div>
+              </div>
             </div>
           )}
           {/* Live transcription badge & interim text */}

@@ -5,6 +5,8 @@ import "./App.css";
 import WorkerImage from "../Photos/Worker.png";
 import WorkerDetails from "./WorkerDetails"; // Import WorkerDetails component
 import Sign from "./Sign";
+import Navbar from "./Navbar";
+
 
 function App() {
   const [email, setEmail] = useState("");
@@ -16,9 +18,10 @@ function App() {
 
   return (
     <div className="min-h-screen bg-[#f8fafc] flex flex-col items-center justify-center px-6 md:px-16">
-      {/* Navbar */}
-      <header className="w-full flex justify-between items-center py-6 max-w-7xl">
-        <h1 className="text-2xl font-bold text-[#0b2545]">EzyWork</h1>
+      <Navbar />
+
+      {/* <header className="w-full flex justify-between items-center py-6 max-w-7xl">
+        <a href="#"><h1 className="text-2xl font-bold text-[#0b2545]">EzyWork</h1></a>
         <nav className="flex gap-8 text-gray-700">
           <a href="#" className="hover:text-black">Home</a>
           <button onClick={scrollToFeatures} className="hover:text-black">
@@ -26,7 +29,6 @@ function App() {
           </button>
         </nav>
         <div className="flex gap-4">
-          {/* Updated buttons to navigate to the Sign page */}
           <button className="text-gray-700" onClick={() => navigate("/sign")}>
             Login
           </button>
@@ -37,7 +39,7 @@ function App() {
             Sign Up
           </button>
         </div>
-      </header>
+      </header> */}
 
       {/* Hero Section */}
       <main className="flex flex-col md:flex-row justify-between items-center w-full max-w-7xl py-12">
