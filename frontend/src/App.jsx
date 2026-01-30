@@ -1,24 +1,65 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom"; // Added for navigation
-import { Routes, Route } from "react-router-dom"; // Added for routing
+import { useNavigate } from "react-router-dom";
+import { Routes, Route } from "react-router-dom";
 import "./App.css";
 import WorkerImage from "../Photos/Worker.png";
-import WorkerDetails from "./WorkerDetails"; // Import WorkerDetails component
+import WorkerDetails from "./WorkerDetails";
 import Sign from "./Sign";
+import User from "./User";
+import Worker from "./Worker";
 import Navbar from "./Navbar";
-
+import { ProtectedRoute } from "./context/ProtectedRoute";
 
 function App() {
-  const [email, setEmail] = useState("");
-  const navigate = useNavigate(); // Hook for navigation
+  const navigate = useNavigate();
 
   const scrollToFeatures = () => {
-    document.getElementById("features-section").scrollIntoView({ behavior: "smooth" });
+    const featuresSection = document.getElementById("features-section");
+    if (featuresSection) {
+      featuresSection.scrollIntoView({ behavior: "smooth" });
+    }
   };
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] flex flex-col items-center justify-center px-6 md:px-16">
-      <Navbar />
+    <div className="min-h-screen bg-[#f8fafc] dark:bg-[#0b1220] dark:text-gray-100">
+      <Routes>
+        {/* Sign page - no navbar */}
+        <Route path="/sign" element={<Sign />} />
+
+        {/* Protected User route */}
+        <Route
+          path="/user"
+          element={
+            <ProtectedRoute>
+              <div className="flex flex-col items-center px-6 md:px-16">
+                <Navbar />
+                <User />
+              </div>
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Protected Worker route */}
+        <Route
+          path="/worker"
+          element={
+            <ProtectedRoute>
+              <div className="flex flex-col items-center px-6 md:px-16">
+                <Navbar />
+                <Worker />
+              </div>
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Worker details route */}
+        <Route path="/worker-details" element={<WorkerDetails />} />
+
+        {/* Home page */}
+        <Route
+          path="/"
+          element={
+            <div className="flex flex-col items-center justify-center px-6 md:px-16">
+              <Navbar />
 
       {/* <header className="w-full flex justify-between items-center py-6 max-w-7xl">
         <a href="#"><h1 className="text-2xl font-bold text-[#0b2545]">EzyWork</h1></a>
@@ -127,29 +168,26 @@ function App() {
         </div>
       </section>
 
-      {/* Call-to-Action Section */}
-      <footer className="w-full max-w-7xl py-12 text-center">
-        <h4 className="text-3xl font-bold text-[#0b2545] mb-4">
-          Ready to get your work done the smart way?
-        </h4>
-        <p className="text-gray-600 mb-6">
-          Join EzyWork today and experience effortless service at your doorstep.
-        </p>
-        <div className="flex justify-center gap-4">
-          <button onClick={() => navigate("/sign")} className="bg-[#0b2545] text-white px-5 py-3 rounded-md hover:bg-[#14365b]">
-            🚀 Get Started
-          </button>
-          <button className="bg-gray-200 text-[#0b2545] px-5 py-3 rounded-md hover:bg-gray-300">
-            👷 Become a Partner
-          </button>
-        </div>
-      </footer>
-
-      {/* Routes */}
-      <Routes>
-        <Route path="/sign" element={<Sign />} />
-        <Route path="/worker-details" element={<WorkerDetails />} />
-        {/* Add other routes here */}
+              {/* Call-to-Action Section */}
+              <footer className="w-full max-w-7xl py-12 text-center mb-8">
+                <h4 className="text-3xl font-bold text-[#0b2545] mb-4">
+                  Ready to get your work done the smart way?
+                </h4>
+                <p className="text-gray-600 mb-6">
+                  Join EzyWork today and experience effortless service at your doorstep.
+                </p>
+                <div className="flex justify-center gap-4">
+                  <button onClick={() => navigate("/sign")} className="bg-[#0b2545] text-white px-5 py-3 rounded-md hover:bg-[#14365b]">
+                    🚀 Get Started
+                  </button>
+                  <button onClick={() => navigate("/sign")} className="bg-gray-200 text-[#0b2545] px-5 py-3 rounded-md hover:bg-gray-300">
+                    👷 Become a Partner
+                  </button>
+                </div>
+              </footer>
+            </div>
+          }
+        />
       </Routes>
     </div>
   );

@@ -34,7 +34,7 @@ function WorkerDetails() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] flex flex-col items-center justify-center px-6 md:px-16">
+    <div className="min-h-screen bg-[#f8fafc] dark:bg-[#0b1220] flex flex-col items-center justify-center px-6 md:px-16">
       <div className="bg-white p-8 rounded-lg shadow-lg max-w-md w-full">
         <h2 className="text-3xl font-bold text-[#0b2545] text-center mb-6">
           Complete Your Profile

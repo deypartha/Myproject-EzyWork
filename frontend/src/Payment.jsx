@@ -8,7 +8,7 @@ export default function Payment() {
   const problem = state?.problem;
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center px-6">
+    <div className="min-h-screen bg-[#f8fafc] dark:bg-[#0b1220] flex items-center justify-center px-6">
       <div className="w-full max-w-lg bg-white p-8 rounded-lg shadow-lg">
         <h2 className="text-2xl font-bold mb-4 text-[#0b2545]">Payment</h2>
         {worker ? (

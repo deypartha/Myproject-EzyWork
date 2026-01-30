@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import Navbar from "./Navbar";
 import {
   Users,
   Wallet,
@@ -189,9 +188,9 @@ export default function WorkerDashboard() {
   }
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
+    <div className="flex min-h-screen bg-gray-50 dark:bg-[#0b1220] dark:text-gray-100">
       {/* Fixed Sidebar */}
-      <aside className="w-72 bg-white border-r shadow-lg flex flex-col justify-between fixed h-screen">
+      <aside className="w-72 bg-white dark:bg-[#0f172a] border-r dark:border-slate-800 shadow-lg flex flex-col justify-between fixed h-screen">
         <div>
           <div className="py-6 px-6 text-center">
             <h1 className="text-2xl font-bold text-green-600">Worker Pro</h1>

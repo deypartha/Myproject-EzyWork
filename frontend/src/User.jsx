@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from "react";
 import { FaMicrophone, FaCamera, FaStar, FaMapMarkerAlt } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
-import Navbar from "./Navbar";
+import { useAuth } from "./context/AuthContext";
 
 function User() {
+  const { user } = useAuth();
   const [step, setStep] = useState(1);
   const [problem, setProblem] = useState("");
   const [workerSuggestions, setWorkerSuggestions] = useState([]);
@@ -135,15 +136,29 @@ function User() {
   const handlePayment = (method) => {
     const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
     setOtp(generatedOtp);
-    setHistory((prev) => [
-      ...prev,
-      {
-        worker: selectedWorker,
-        problem,
-        status: "Pending",
-        otp: generatedOtp,
-      },
-    ]);
+    
+    const newBooking = {
+      worker: selectedWorker,
+      problem,
+      status: "Pending",
+      otp: generatedOtp,
+      workerName: selectedWorker.name,
+      workerEmail: selectedWorker.contact,
+      dateTime: new Date().toLocaleString(),
+      price: selectedWorker.price,
+    };
+    
+    setHistory((prev) => [...prev, newBooking]);
+    
+    // Save booking to localStorage
+    if (user) {
+      const bookingKey = `bookingHistory_${user.email}`;
+      const existingBookings = localStorage.getItem(bookingKey);
+      const bookings = existingBookings ? JSON.parse(existingBookings) : [];
+      bookings.push(newBooking);
+      localStorage.setItem(bookingKey, JSON.stringify(bookings));
+    }
+    
     setStep(4);
   };
 
@@ -404,10 +419,7 @@ function User() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] flex flex-col items-center px-6 md:px-16">
-      {/* Header */}
-      <Navbar />
-
+    <div className="min-h-screen bg-[#f8fafc] dark:bg-[#0b1220] flex flex-col items-center px-6 md:px-16">
       {/* Step 1: Problem Description */}
       {step === 1 && (
         <div className="w-full max-w-5xl min-h-[72vh] bg-white p-8 rounded-lg shadow-lg flex flex-col">
