@@ -2,11 +2,12 @@ import { useNavigate } from "react-router-dom";
 import { Routes, Route } from "react-router-dom";
 import "./App.css";
 import WorkerImage from "../Photos/Worker.png";
-import WorkerDetails from "./WorkerDetails";
+// import WorkerDetails from "./WorkerDetails";
 import Sign from "./Sign";
 import User from "./User";
 import Worker from "./Worker";
 import Navbar from "./Navbar";
+import WorkerDetails from "./WorkerDetails";
 import { ProtectedRoute } from "./context/ProtectedRoute";
 
 function App() {
@@ -52,7 +53,7 @@ function App() {
         />
 
         {/* Worker details route */}
-        <Route path="/worker-details" element={<WorkerDetails />} />
+        <Route path="/WorkerDetails" element={<WorkerDetails />} />
 
         {/* Home page */}
         <Route
@@ -97,7 +98,7 @@ function App() {
             <button onClick={() => navigate("/user")} className="bg-[#0b2545] text-white px-5 py-3 rounded-md hover:bg-[#14365b]">
               Find a Worker
             </button>
-            <button onClick={() => navigate("/sign")} className="bg-gray-200 text-[#0b2545] px-5 py-3 rounded-md hover:bg-gray-300">
+            <button onClick={() => navigate("/WorkerDetails")} className="bg-gray-200 text-[#0b2545] px-5 py-3 rounded-md hover:bg-gray-300">
               Join as a Worker
             </button>
           </div>

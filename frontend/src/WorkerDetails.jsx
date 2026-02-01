@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Home } from "lucide-react";
 
 function WorkerDetails() {
   const [workerDetails, setWorkerDetails] = useState({
@@ -7,6 +8,8 @@ function WorkerDetails() {
     location: "",
     yearsOfExperience: "",
     typeOfWork: [],
+    mobileNumber: "",
+    email: ""
   });
 
   const navigate = useNavigate();
@@ -27,16 +30,45 @@ function WorkerDetails() {
     }));
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    console.log(workerDetails); // Replace with API call or other logic
-    navigate("/worker");
+    
+    try {
+      const response = await fetch("http://localhost:5000/api/workers/details", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(workerDetails),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        alert("Worker details saved successfully!");
+        navigate("/worker");
+      } else {
+        alert(data.message || "Failed to save worker details");
+      }
+    } catch (error) {
+      console.error("Error saving worker details:", error);
+      alert("An error occurred while saving worker details");
+    }
   };
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] dark:bg-[#0b1220] flex flex-col items-center justify-center px-6 md:px-16">
-      <div className="bg-white p-8 rounded-lg shadow-lg max-w-md w-full">
-        <h2 className="text-3xl font-bold text-[#0b2545] text-center mb-6">
+    <div className="min-h-screen bg-[#0b1220] flex flex-col items-center justify-center px-6 md:px-16">
+      <div className="absolute top-4 left-4">
+        <button 
+          onClick={() => navigate('/')}
+          className="flex items-center gap-2 px-4 py-2 bg-[#0f172a] text-gray-100 rounded-lg shadow-md hover:shadow-lg hover:bg-[#1e293b] transition-all border border-slate-700"
+        >
+          <Home size={20} />
+          Back to Home
+        </button>
+      </div>
+      <div className="bg-[#0f172a] border border-slate-800 p-8 rounded-lg shadow-2xl max-w-md w-full">
+        <h2 className="text-3xl font-bold text-green-500 text-center mb-6">
           Complete Your Profile
         </h2>
         <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
@@ -46,7 +78,7 @@ function WorkerDetails() {
             name="fullName"
             value={workerDetails.fullName}
             onChange={handleChange}
-            className="px-4 py-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#0b2545]"
+            className="px-4 py-3 bg-[#1e293b] border border-slate-700 text-gray-100 placeholder-gray-400 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
           />
           <input
             type="text"
@@ -54,7 +86,7 @@ function WorkerDetails() {
             name="location"
             value={workerDetails.location}
             onChange={handleChange}
-            className="px-4 py-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#0b2545]"
+            className="px-4 py-3 bg-[#1e293b] border border-slate-700 text-gray-100 placeholder-gray-400 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
           />
           <input
             type="number"
@@ -62,24 +94,42 @@ function WorkerDetails() {
             name="yearsOfExperience"
             value={workerDetails.yearsOfExperience}
             onChange={handleChange}
-            className="px-4 py-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#0b2545]"
+            className="px-4 py-3 bg-[#1e293b] border border-slate-700 text-gray-100 placeholder-gray-400 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
           />
+          <input
+          type="tel"
+          placeholder="Enter your contact number"
+          name="mobileNumber"
+          value={workerDetails.mobileNumber}
+          pattern="[0-9]{10}"
+          maxLength={10}
+          onChange={handleChange}
+          className="px-4 py-3 bg-[#1e293b] border border-slate-700 text-gray-100 placeholder-gray-400 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500" required></input>
+          <input
+          type="email"
+          placeholder="Enter your email id"
+          name="email"
+          value={workerDetails.email}
+          pattern="[a-zA-Z0-9.-_+%]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
+          onChange={handleChange}
+          className="px-4 py-3 bg-[#1e293b] border border-slate-700 text-gray-100 placeholder-gray-400 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500" required></input>
           <select
-            multiple
             name="typeOfWork"
             value={workerDetails.typeOfWork}
             onChange={handleTypeOfWorkChange}
-            className="px-4 py-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#0b2545] h-32"
+            className="px-4 py-3 bg-[#1e293b] border border-slate-700 text-gray-100 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
           >
-            <option value="Plumber">Plumber</option>
-            <option value="Electrician">Electrician</option>
-            <option value="Carpenter">Carpenter</option>
-            <option value="Painter">Painter</option>
-            <option value="Welder">Welder</option>
-            <option value="Mechanic">Mechanic</option>
-            <option value="Driver">Driver</option>
+            <option value="" className="bg-[#1e293b]">Select type of work</option>
+            <option value="Plumber" className="bg-[#1e293b]">Plumber</option>
+            <option value="Electrician" className="bg-[#1e293b]">Electrician</option>
+            <option value="Carpenter" className="bg-[#1e293b]">Carpenter</option>
+            <option value="Painter" className="bg-[#1e293b]">Painter</option>
+            <option value="Welder" className="bg-[#1e293b]">Welder</option>
+            <option value="Mechanic" className="bg-[#1e293b]">Mechanic</option>
+            <option value="Driver" className="bg-[#1e293b]">Driver</option>
           </select>
-          <button className="bg-[#0b2545] text-white py-3 rounded-md hover:bg-[#14365b] font-semibold">
+
+          <button className="bg-green-600 text-white py-3 rounded-md hover:bg-green-700 font-semibold transition-all">
             Submit
           </button>
         </form>

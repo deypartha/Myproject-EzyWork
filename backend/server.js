@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import cors from "cors";
 import authRoutes from "./routes/authRoutes.js";
 import translateRoutes from "./routes/translateRoutes.js";
+import workerRoutes from "./routes/workerRoutes.js";
 
 // Ensure .env is loaded even if server is started from the project root
 dotenv.config({ path: new URL('./.env', import.meta.url).pathname });
@@ -31,5 +32,6 @@ if (MONGO_URI) {
 
 app.use("/api/auth", authRoutes);
 app.use("/api", translateRoutes);
+app.use("/api/workers", workerRoutes);
 
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

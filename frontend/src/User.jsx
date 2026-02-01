@@ -69,62 +69,38 @@ function User() {
       const skill = await detectSkill(problem);
       setDetectedSkill(skill);
 
-      // Example worker data. In real app this would come from API.
-      const all = [
-        {
-          id: 1,
-          name: "John Doe",
-          skill: "Electrician",
-          rating: 4.8,
-          distance: "2.1 km",
-          price: "$50 - $70",
-          contact: "+1-555-0123",
-          location: "Downtown",
+      try {
+        // Fetch workers from database
+        let url = "http://localhost:5000/api/workers/all";
+        if (skill) {
+          url = `http://localhost:5000/api/workers/type/${skill}`;
+        }
+        
+        const response = await fetch(url);
+        const workers = await response.json();
+        
+        // Transform database workers to match the expected format
+        const transformedWorkers = workers.map((worker) => ({
+          id: worker._id,
+          name: worker.fullName || worker.name,
+          skill: worker.typeOfWork && worker.typeOfWork[0] ? worker.typeOfWork[0] : "General",
+          rating: 4.5, // Default rating (you can add this to your model later)
+          distance: "N/A", // Can calculate based on location later
+          price: "$40 - $60", // Default price (you can add this to your model later)
+          contact: worker.mobileNumber || worker.number,
+          location: worker.location || "Unknown",
           image: null,
-        },
-        {
-          id: 2,
-          name: "Jane Smith",
-          skill: "Plumber",
-          rating: 4.5,
-          distance: "3.5 km",
-          price: "$40 - $60",
-          contact: "+1-555-0456",
-          location: "Uptown",
-          image: null,
-        },
-        {
-          id: 3,
-          name: "Ramesh Kumar",
-          skill: "Plumber",
-          rating: 4.7,
-          distance: "1.2 km",
-          price: "$45 - $65",
-          contact: "+91-98765-43210",
-          location: "Sector 12",
-          image: null,
-        },
-        {
-          id: 4,
-          name: "Aisha Khan",
-          skill: "Plumber",
-          rating: 4.4,
-          distance: "4.0 km",
-          price: "$35 - $55",
-          contact: "+44-7700-900123",
-          location: "Green Park",
-          image: null,
-        },
-      ];
+          email: worker.email,
+          yearsOfExperience: worker.yearsOfExperience || 0,
+          allSkills: worker.typeOfWork || []
+        }));
 
-      // If AI detected a skill, filter by it. Otherwise fall back to plumber heuristics like before.
-      const suggestions = skill
-        ? all.filter((w) => w.skill.toLowerCase() === skill.toLowerCase())
-        : isPlumberRequest(problem)
-        ? all.filter((w) => w.skill.toLowerCase() === "plumber")
-        : all;
-      setWorkerSuggestions(suggestions);
-      setStep(2);
+        setWorkerSuggestions(transformedWorkers);
+        setStep(2);
+      } catch (error) {
+        console.error("Error fetching workers:", error);
+        alert("Failed to fetch workers. Please try again.");
+      }
     })();
   };
 

@@ -99,6 +99,8 @@ export default function WorkerDashboard() {
     city: null,
     country: null,
   });
+  const [workers, setWorkers] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState("");
 
   // Define menuItems array
   const menuItems = [
@@ -108,6 +110,7 @@ export default function WorkerDashboard() {
     { key: "availability", icon: <Calendar size={18} />, label: "Availability & Schedule" },
     { key: "security", icon: <ShieldAlert size={18} />, label: "Security & Communication" },
     { key: "history", icon: <Briefcase size={18} />, label: "Work History" },
+    { key: "browse", icon: <Users size={18} />, label: "Browse Workers" },
   ];
 
   // Fetch worker's location on dashboard load
@@ -136,6 +139,28 @@ export default function WorkerDashboard() {
 
     fetchLocation();
   }, []);
+
+  // Fetch workers based on category
+  useEffect(() => {
+    const fetchWorkers = async () => {
+      try {
+        let url = "http://localhost:5000/api/workers/all";
+        if (selectedCategory) {
+          url = `http://localhost:5000/api/workers/type/${selectedCategory}`;
+        }
+        
+        const response = await fetch(url);
+        const data = await response.json();
+        setWorkers(data);
+      } catch (error) {
+        console.error("Error fetching workers:", error);
+      }
+    };
+
+    if (activeSection === "browse") {
+      fetchWorkers();
+    }
+  }, [selectedCategory, activeSection]);
 
   // Fetch city and country using reverse geocoding API
   const fetchCityAndCountry = async (latitude, longitude) => {
@@ -190,6 +215,7 @@ export default function WorkerDashboard() {
   return (
     <div className="flex min-h-screen bg-gray-50 dark:bg-[#0b1220] dark:text-gray-100">
       {/* Fixed Sidebar */}
+      
       <aside className="w-72 bg-white dark:bg-[#0f172a] border-r dark:border-slate-800 shadow-lg flex flex-col justify-between fixed h-screen">
         <div>
           <div className="py-6 px-6 text-center">
@@ -281,6 +307,13 @@ export default function WorkerDashboard() {
         )}
         {activeSection === "history" && (
           <HistorySection history={history} />
+        )}
+        {activeSection === "browse" && (
+          <BrowseWorkersSection 
+            workers={workers} 
+            selectedCategory={selectedCategory} 
+            setSelectedCategory={setSelectedCategory} 
+          />
         )}
       </main>
 
@@ -668,6 +701,98 @@ function FraudReportModal({ onClose, onSubmit }) {
           <button onClick={onClose} className="px-3 py-2 rounded-md border">Cancel</button>
           <button onClick={() => onSubmit(details)} className="px-4 py-2 rounded-md bg-red-600 text-white">Submit Report</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------ Browse Workers Section ------------------ */
+function BrowseWorkersSection({ workers, selectedCategory, setSelectedCategory }) {
+  const categories = ["Plumber", "Electrician", "Carpenter", "Painter", "Welder", "Mechanic", "Driver"];
+
+  return (
+    <div className="space-y-6">
+      {/* Filter by Category */}
+      <div className="bg-white p-6 rounded-xl shadow-sm">
+        <h3 className="font-semibold mb-4">Filter by Category</h3>
+        <div className="flex gap-3 flex-wrap">
+          <button
+            onClick={() => setSelectedCategory("")}
+            className={`px-4 py-2 rounded-md ${
+              selectedCategory === "" ? "bg-green-600 text-white" : "bg-gray-100 text-gray-700"
+            }`}
+          >
+            All Workers
+          </button>
+          {categories.map((category) => (
+            <button
+              key={category}
+              onClick={() => setSelectedCategory(category)}
+              className={`px-4 py-2 rounded-md ${
+                selectedCategory === category ? "bg-green-600 text-white" : "bg-gray-100 text-gray-700"
+              }`}
+            >
+              {category}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Workers List */}
+      <div className="bg-white p-6 rounded-xl shadow-sm">
+        <h3 className="font-semibold mb-4">
+          {selectedCategory ? `${selectedCategory}s` : "All Workers"} ({workers.length})
+        </h3>
+        
+        {workers.length === 0 ? (
+          <p className="text-gray-500">No workers found in this category.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {workers.map((worker) => (
+              <div key={worker._id} className="border rounded-lg p-4 hover:shadow-md transition">
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <h4 className="font-semibold text-lg">{worker.fullName || worker.name}</h4>
+                    <p className="text-sm text-gray-500">{worker.location || "Location not specified"}</p>
+                  </div>
+                  <div className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-medium">
+                    {worker.yearsOfExperience || 0} yrs
+                  </div>
+                </div>
+                
+                <div className="space-y-2 mb-3">
+                  <div className="flex items-center gap-2 text-sm">
+                    <Phone size={14} className="text-gray-500" />
+                    <span>{worker.mobileNumber || worker.number}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <MapPin size={14} className="text-gray-500" />
+                    <span>{worker.email}</span>
+                  </div>
+                </div>
+
+                <div className="mb-3">
+                  <p className="text-xs text-gray-500 mb-1">Skills:</p>
+                  <div className="flex gap-2 flex-wrap">
+                    {worker.typeOfWork && worker.typeOfWork.length > 0 ? (
+                      worker.typeOfWork.map((skill, idx) => (
+                        <span key={idx} className="bg-blue-50 text-blue-700 px-2 py-1 rounded text-xs">
+                          {skill}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-xs text-gray-400">No skills listed</span>
+                    )}
+                  </div>
+                </div>
+
+                <button className="w-full bg-green-600 text-white py-2 rounded-md hover:bg-green-700 transition text-sm">
+                  Contact Worker
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
