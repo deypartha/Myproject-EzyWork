@@ -8,7 +8,7 @@ import User from "./User";
 import Worker from "./Worker";
 import Navbar from "./Navbar";
 import WorkerDetails from "./WorkerDetails";
-import { ProtectedRoute } from "./context/ProtectedRoute";
+import { ProtectedRoute, RoleProtectedRoute } from "./context/ProtectedRoute";
 
 function App() {
   const navigate = useNavigate();
@@ -30,12 +30,12 @@ function App() {
         <Route
           path="/user"
           element={
-            <ProtectedRoute>
+            <RoleProtectedRoute allowedRoles={["user"]}>
               <div className="flex flex-col items-center px-6 md:px-16">
                 <Navbar />
                 <User />
               </div>
-            </ProtectedRoute>
+            </RoleProtectedRoute>
           }
         />
 
@@ -43,12 +43,12 @@ function App() {
         <Route
           path="/worker"
           element={
-            <ProtectedRoute>
+            <RoleProtectedRoute allowedRoles={["worker"]}>
               <div className="flex flex-col items-center px-6 md:px-16">
                 <Navbar />
                 <Worker />
               </div>
-            </ProtectedRoute>
+            </RoleProtectedRoute>
           }
         />
 

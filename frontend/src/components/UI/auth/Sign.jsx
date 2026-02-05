@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Mail, Lock, User, Briefcase, ArrowRight, Loader2, AlertCircle, CheckCircle } from "lucide-react";
-import { useAuth } from "./context/AuthContext";
+import { useAuth } from "../../../context/AuthContext";
 
 const Sign = () => {
   const [isSignUp, setIsSignUp] = useState(false);
@@ -9,7 +9,7 @@ const Sign = () => {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const navigate = useNavigate();
-  const { login, signup, isAuthenticated } = useAuth();
+  const { login, signup, isAuthenticated, user } = useAuth();
 
   const [formData, setFormData] = useState({
     name: "",
@@ -21,10 +21,10 @@ const Sign = () => {
 
   // Redirect if already logged in
   useEffect(() => {
-    if (isAuthenticated) {
-      navigate("/");
+    if (isAuthenticated && user?.role) {
+      navigate(user.role === "worker" ? "/worker" : "/user");
     }
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, user, navigate]);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -104,7 +104,8 @@ const Sign = () => {
         if (result.success) {
           setSuccess("Login successful! Redirecting...");
           setTimeout(() => {
-            navigate("/");
+            const role = result.user?.role || "user";
+            navigate(role === "worker" ? "/worker" : "/user");
           }, 1500);
         } else {
           setError(result.error);

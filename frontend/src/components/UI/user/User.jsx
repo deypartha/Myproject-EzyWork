@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { FaMicrophone, FaCamera, FaStar, FaMapMarkerAlt } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "./context/AuthContext";
+import { useAuth } from "../../../context/AuthContext";
 
 function User() {
   const { user } = useAuth();

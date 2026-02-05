@@ -70,13 +70,10 @@ function Navbar() {
   return (
     <div className="w-full">
       <header className={`w-full flex justify-between items-center py-6 px-8 max-w-7xl mx-auto transition-all ${showBookingHistory ? 'blur-sm pointer-events-none' : ''}`}>
-      {/* <header className="w-full flex justify-between items-center py-6 px-8 max-w-7xl mx-auto"> */}
-        {/* Left side - Brand name */}
         <a href="/" className="shrink-0">
           <h1 className="text-2xl font-bold text-[#0b2545]">EzyWork</h1>
         </a>
-        
-        {/* Right side - Navigation and Auth buttons - Desktop */}
+
         <div className="hidden md:flex items-center gap-8">
           <nav className="flex gap-8 text-gray-700 items-center">
             <button onClick={scrollToFeatures} className="hover:text-black transition-colors">

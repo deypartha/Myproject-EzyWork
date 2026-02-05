@@ -7,6 +7,7 @@ export const translateAudio = async (req, res) => {
     if (!req.file) {
       return res.status(400).json({ msg: "No audio file provided" });
     }
+    
 
     // For now, return a mock response
     // In a real implementation, you would:
