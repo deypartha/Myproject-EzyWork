@@ -1,7 +1,7 @@
 import React from 'react'
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from './context/AuthContext';
+import { useAuth } from '../../context/AuthContext';
 import { Menu, X, LogOut, User as UserIcon, Sun, Moon, History } from 'lucide-react';
 
 function Navbar() {

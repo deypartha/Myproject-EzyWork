@@ -57,9 +57,27 @@ export const AuthProvider = ({ children }) => {
         role,
       });
 
+      // If signup is successful and there's user data, auto-login
+      if (response.data.user && response.data.token) {
+        const { token, user: userData } = response.data;
+        setToken(token);
+        setUser(userData);
+        localStorage.setItem("token", token);
+        localStorage.setItem("user", JSON.stringify(userData));
+        axios.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+        
+        return {
+          success: true,
+          message: response.data.msg || "Account created successfully",
+          user: userData,
+          autoLogin: true,
+        };
+      }
+
       return {
         success: true,
         message: response.data.msg || "Account created successfully",
+        user: response.data.user,
       };
     } catch (error) {
       return {

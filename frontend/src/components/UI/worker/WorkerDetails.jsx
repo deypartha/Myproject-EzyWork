@@ -1,8 +1,13 @@
-import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useState, useEffect } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { Home } from "lucide-react";
+import { useAuth } from "../../../context/AuthContext";
 
 function WorkerDetails() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { user, isAuthenticated } = useAuth();
+
   const [workerDetails, setWorkerDetails] = useState({
     fullName: "",
     location: "",
@@ -12,7 +17,23 @@ function WorkerDetails() {
     email: ""
   });
 
-  const navigate = useNavigate();
+  // Pre-populate email from signup or logged-in user
+  useEffect(() => {
+    if (location.state?.email) {
+      // Redirected from signup
+      setWorkerDetails((prev) => ({
+        ...prev,
+        email: location.state.email,
+        fullName: location.state.name || "",
+      }));
+    } else if (isAuthenticated && user?.email) {
+      // Already logged in
+      setWorkerDetails((prev) => ({
+        ...prev,
+        email: user.email,
+      }));
+    }
+  }, [location.state, isAuthenticated, user]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -112,7 +133,8 @@ function WorkerDetails() {
           value={workerDetails.email}
           pattern="[a-zA-Z0-9.-_+%]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
           onChange={handleChange}
-          className="px-4 py-3 bg-[#1e293b] border border-slate-700 text-gray-100 placeholder-gray-400 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500" required></input>
+          readOnly
+          className="px-4 py-3 bg-[#1e293b] border border-slate-700 text-gray-100 placeholder-gray-400 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 cursor-not-allowed opacity-75" required></input>
           <select
             name="typeOfWork"
             value={workerDetails.typeOfWork}

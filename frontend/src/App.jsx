@@ -1,18 +1,16 @@
 import { useNavigate } from "react-router-dom";
 import { Routes, Route } from "react-router-dom";
 import "./App.css";
-import WorkerImage from "../Photos/Worker.png";
-// import WorkerDetails from "./WorkerDetails";
-import Sign from "./Sign";
-import User from "./User";
-import Worker from "./Worker";
-import Navbar from "./Navbar";
-import WorkerDetails from "./WorkerDetails";
+import WorkerImage from '/public/Photos/Worker.png'
+import Sign from "./components/UI/auth/Sign";
+import User from "./components/UI/user/User";
+import Navbar from "./components/common/Navbar";
+import Worker from "./components/UI/worker/Worker";
+import WorkerDetails from "./components/UI/worker/WorkerDetails";
 import { ProtectedRoute, RoleProtectedRoute } from "./context/ProtectedRoute";
 
 function App() {
   const navigate = useNavigate();
-
   const scrollToFeatures = () => {
     const featuresSection = document.getElementById("features-section");
     if (featuresSection) {

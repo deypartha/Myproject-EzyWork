@@ -2,8 +2,8 @@ import CssBaseline from '@mui/material/CssBaseline';
 import Stack from '@mui/material/Stack';
 import AppTheme from '../shared-theme/AppTheme';
 import ColorModeSelect from '../shared-theme/ColorModeSelect';
-import SignInCard from './components/SignInCard';
-import Content from './components/Content';
+import SignInCard from './SignInCard';
+import Content from './Content';
 
 export default function Authentication(props) {
   return (

@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Mail, Lock, User, Briefcase, ArrowRight, Loader2, AlertCircle, CheckCircle } from "lucide-react";
 import { useAuth } from "../../../context/AuthContext";
+import { validSignUp } from "../../../utils/signup.validator";
+import { validPassword } from "../../../utils/password.validator";
 
 const Sign = () => {
   const [isSignUp, setIsSignUp] = useState(false);
@@ -48,12 +50,18 @@ const Sign = () => {
         setError("Name is required");
         return false;
       }
-      if (formData.password.length < 6) {
-        setError("Password must be at least 6 characters");
+
+      // Validate signup form
+      const signupValidation = validSignUp(formData.email, formData.password, formData.confirmPassword);
+      if (!signupValidation.ok) {
+        setError(signupValidation.message);
         return false;
       }
-      if (formData.password !== formData.confirmPassword) {
-        setError("Passwords do not match");
+
+      // Validate password strength
+      const passwordValidation = validPassword(formData.password);
+      if (!passwordValidation.ok) {
+        setError(passwordValidation.message);
         return false;
       }
     }
@@ -81,19 +89,29 @@ const Sign = () => {
         );
 
         if (result.success) {
-          setSuccess("Account created successfully! Please sign in.");
-          // Clear form and switch to login
-          setTimeout(() => {
-            setIsSignUp(false);
-            setFormData({
-              name: "",
-              email: "",
-              password: "",
-              confirmPassword: "",
-              role: "user",
-            });
-            setSuccess("");
-          }, 2000);
+          // If worker signup, redirect to worker details form with email
+          if (formData.role === "worker" && result.autoLogin) {
+            setSuccess("Account created! Redirecting to complete your profile...");
+            setTimeout(() => {
+              navigate("/WorkerDetails", { 
+                state: { email: formData.email, name: formData.name } 
+              });
+            }, 1500);
+          } else {
+            setSuccess("Account created successfully! Please sign in.");
+            // Clear form and switch to login for regular users
+            setTimeout(() => {
+              setIsSignUp(false);
+              setFormData({
+                name: "",
+                email: "",
+                password: "",
+                confirmPassword: "",
+                role: "user",
+              });
+              setSuccess("");
+            }, 2000);
+          }
         } else {
           setError(result.error);
         }

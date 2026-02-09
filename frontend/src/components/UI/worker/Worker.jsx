@@ -27,6 +27,7 @@ import {
   Pie,
   Cell,
 } from "recharts";
+import { validOtp } from "../../../utils/otp.validator";
 
 // --- Sample data ---
 const performanceWeekly = [
@@ -188,16 +189,20 @@ export default function WorkerDashboard() {
 
   // Verify OTP and complete job
   function verifyOtp(jobId, otpValue) {
-    // In real app verify on server. Here we accept '0000' as valid OTP for demo.
-    if (otpValue.trim() === "0000") {
-      setHistory((h) =>
-        h.map((j) => (j.id === jobId ? { ...j, status: "otp-verified" } : j))
-      );
-      setOtpModal({ open: false, jobId: null });
-      setPaymentModal({ open: true, jobId });
-    } else {
-      alert("Invalid OTP. Try 0000 for demo.");
+    // Validate OTP format
+    const otpArray = otpValue.split("");
+    const otpValidation = validOtp(otpArray);
+    
+    if (!otpValidation.ok) {
+      alert(otpValidation.message);
+      return;
     }
+
+    setHistory((h) =>
+      h.map((j) => (j.id === jobId ? { ...j, status: "otp-verified" } : j))
+    );
+    setOtpModal({ open: false, jobId: null });
+    setPaymentModal({ open: true, jobId });
   }
 
   function handlePayment(jobId, method) {
@@ -712,15 +717,47 @@ function HistorySection({ history }) {
 /* ------------------ OTP Modal ------------------ */
 function OtpModal({ jobId, onClose, onVerify }) {
   const [otp, setOtp] = useState("");
+  const [error, setError] = useState("");
+
+  const handleVerify = () => {
+    if (!otp.trim()) {
+      setError("Please enter the OTP");
+      return;
+    }
+
+    // Validate OTP format before calling onVerify
+    const otpArray = otp.split("");
+    const otpValidation = validOtp(otpArray);
+    
+    if (!otpValidation.ok) {
+      setError(otpValidation.message);
+      return;
+    }
+
+    setError("");
+    onVerify(otp);
+  };
+
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
       <div className="bg-white p-6 rounded-lg w-96 shadow-lg">
         <h4 className="font-semibold mb-2">Enter OTP to complete job</h4>
-        <p className="text-sm text-gray-500 mb-4">Ask the customer for the 4-digit OTP and enter it here.</p>
-        <input value={otp} onChange={(e) => setOtp(e.target.value)} placeholder="Enter OTP" className="w-full border rounded-md px-3 py-2 mb-4" />
+        <p className="text-sm text-gray-500 mb-4">Ask the customer for the 6-digit OTP and enter it here.</p>
+        <input 
+          value={otp} 
+          onChange={(e) => {
+            setOtp(e.target.value);
+            setError("");
+          }} 
+          placeholder="Enter 6-digit OTP" 
+          className={`w-full border rounded-md px-3 py-2 mb-2 ${error ? 'border-red-500' : ''}`}
+          maxLength="6"
+          type="number"
+        />
+        {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
         <div className="flex justify-end gap-3">
           <button onClick={onClose} className="px-3 py-2 rounded-md border">Cancel</button>
-          <button onClick={() => onVerify(otp)} className="px-4 py-2 rounded-md bg-green-600 text-white">Verify & Complete</button>
+          <button onClick={handleVerify} className="px-4 py-2 rounded-md bg-green-600 text-white">Verify & Complete</button>
         </div>
       </div>
     </div>
