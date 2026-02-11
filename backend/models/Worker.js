@@ -9,6 +9,12 @@ const workerSchema = new Schema({
     location: { type: String },
     yearsOfExperience: { type: Number },
     typeOfWork: { type: [String], default: [] },
+    isOnline: { type: Boolean, default: false },
+    currentLocation: {
+        latitude: { type: Number },
+        longitude: { type: Number },
+        city: { type: String }
+    },
     mobileNumber: { type: String }
 }, { timestamps: true })
 

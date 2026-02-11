@@ -60,7 +60,9 @@ function User() {
     if (isPlumberRequest(text)) return "Plumber";
     const t = text.toLowerCase();
     if (t.includes("electri") || t.includes("switch") || t.includes("wire")) return "Electrician";
-    if (t.includes("clean") || t.includes("deep clean")) return "Cleaner";
+    if (t.includes("clean") || t.includes("deep clean") || t.includes("wash")) return "Cleaner";
+    if (t.includes("paint") || t.includes("color") || t.includes("wall")) return "Painter";
+    if (t.includes("carpen") || t.includes("wood") || t.includes("furniture")) return "Carpenter";
     return null;
   };
 
@@ -70,15 +72,35 @@ function User() {
       setDetectedSkill(skill);
 
       try {
-        // Fetch workers from database
+        // 1. Create Problem in Backend (Triggers Socket Broadcast)
+        if (user) {
+            try {
+                await fetch("http://localhost:5000/api/problems/create", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        title: problem.substring(0, 50) + "...", // Short title
+                        description: problem,
+                        category: skill || "General",
+                        createdBy: user.id || user._id, // Assuming user object has ID
+                        location: { city: "Unknown" } // Placeholder
+                    })
+                });
+            } catch (err) {
+                console.error("Failed to broadcast problem:", err);
+                // Continue anyway to show list
+            }
+        }
+
+        // 2. Fetch workers from database
         let url = "http://localhost:5000/api/workers/all";
         if (skill) {
           url = `http://localhost:5000/api/workers/type/${skill}`;
         }
-        
+
         const response = await fetch(url);
         const workers = await response.json();
-        
+
         // Transform database workers to match the expected format
         const transformedWorkers = workers.map((worker) => ({
           id: worker._id,
@@ -112,7 +134,7 @@ function User() {
   const handlePayment = (method) => {
     const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
     setOtp(generatedOtp);
-    
+
     const newBooking = {
       worker: selectedWorker,
       problem,
@@ -123,9 +145,9 @@ function User() {
       dateTime: new Date().toLocaleString(),
       price: selectedWorker.price,
     };
-    
+
     setHistory((prev) => [...prev, newBooking]);
-    
+
     // Save booking to localStorage
     if (user) {
       const bookingKey = `bookingHistory_${user.email}`;
@@ -134,7 +156,7 @@ function User() {
       bookings.push(newBooking);
       localStorage.setItem(bookingKey, JSON.stringify(bookings));
     }
-    
+
     setStep(4);
   };
 
@@ -149,7 +171,7 @@ function User() {
       mediaStreamRef.current = stream;
       if (video && videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.play().catch(() => {});
+        videoRef.current.play().catch(() => { });
       }
       setIsCameraOn(!!video);
       setIsMicOn(!!audio);
@@ -165,7 +187,7 @@ function User() {
       mediaStreamRef.current = null;
     }
     if (videoRef.current) {
-      try { videoRef.current.pause(); videoRef.current.srcObject = null; } catch(e){}
+      try { videoRef.current.pause(); videoRef.current.srcObject = null; } catch (e) { }
     }
     setIsCameraOn(false);
     setIsMicOn(false);
@@ -174,18 +196,18 @@ function User() {
   // Capture photo from video stream
   const capturePhoto = () => {
     if (!videoRef.current) return;
-    
+
     const canvas = document.createElement('canvas');
     canvas.width = videoRef.current.videoWidth;
     canvas.height = videoRef.current.videoHeight;
     const ctx = canvas.getContext('2d');
     ctx.drawImage(videoRef.current, 0, 0);
-    
+
     // Convert to blob and store
     canvas.toBlob(async (blob) => {
       const imageUrl = URL.createObjectURL(blob);
       setCapturedImage(imageUrl);
-      
+
       // Send to AI for analysis
       await analyzeImageWithAI(blob);
     }, 'image/jpeg', 0.95);
@@ -197,13 +219,13 @@ function User() {
     try {
       const formData = new FormData();
       formData.append('image', imageBlob, 'problem.jpg');
-      
+
       // Send to backend AI endpoint
       const res = await fetch('/api/analyze-image', {
         method: 'POST',
         body: formData,
       });
-      
+
       if (res.ok) {
         const json = await res.json();
         // json should have { description: '...', detectedProblem: '...' }
@@ -375,7 +397,7 @@ function User() {
 
   const stopTranscription = () => {
     if (recognitionRef.current) {
-      try { recognitionRef.current.stop(); } catch(e) {}
+      try { recognitionRef.current.stop(); } catch (e) { }
       recognitionRef.current = null;
     }
     setIsTranscribing(false);
@@ -472,7 +494,7 @@ function User() {
               </div>
             </div>
           )}
-          
+
           {/* Captured image preview */}
           {capturedImage && (
             <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-md">
@@ -489,8 +511,8 @@ function User() {
                     </button>
                   </div>
                   <p className="text-sm text-gray-600">
-                    {isAnalyzingImage 
-                      ? "AI is analyzing your image to detect the problem..." 
+                    {isAnalyzingImage
+                      ? "AI is analyzing your image to detect the problem..."
                       : "Image has been analyzed and added to your problem description."}
                   </p>
                 </div>

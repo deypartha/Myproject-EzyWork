@@ -1,6 +1,9 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react"; // Added useRef
+import { io } from "socket.io-client"; // Added socket.io-client
+import { useAuth } from "../../../context/AuthContext"; // Added useAuth
 import {
   Users,
+  User,
   Wallet,
   Star,
   Calendar,
@@ -105,8 +108,129 @@ export default function WorkerDashboard() {
     city: null,
     country: null,
   });
-  const [workers, setWorkers] = useState([]);
-  const [selectedCategory, setSelectedCategory] = useState("");
+  const [locationModalOpen, setLocationModalOpen] = useState(false);
+  const [manualCity, setManualCity] = useState("");
+  const { user } = useAuth(); // Get user from auth
+  const [workerProfile, setWorkerProfile] = useState(null); // Store full worker profile
+  const socketRef = useRef(null); // Socket reference
+
+  // Initialize Socket
+  useEffect(() => {
+    socketRef.current = io("http://localhost:5000");
+    return () => {
+      socketRef.current.disconnect();
+    };
+  }, []);
+
+  // Fetch Worker Profile to get Skills and Registered Location
+  useEffect(() => {
+    if (user && user.id) {
+      const fetchWorkerProfile = async () => {
+        try {
+          const response = await fetch(`http://localhost:5000/api/workers/${user.id}`);
+          if (response.ok) {
+            const data = await response.json();
+            setWorkerProfile(data);
+            // Use registered location as primary
+            if (data.location) {
+              setManualCity(data.location);
+              setWorkerLocation(prev => ({
+                ...prev,
+                city: data.location,
+                country: "India" // Default to India if not specified
+              }));
+            }
+          }
+        } catch (error) {
+          console.error("Error fetching worker profile:", error);
+        }
+      };
+      fetchWorkerProfile();
+    }
+  }, [user]);
+
+  // Handle Online Toggle
+  const handleToggleOnline = async () => {
+    const newStatus = !online;
+    // Optimistic update
+    setOnline(newStatus);
+
+    if (!user) return;
+
+    try {
+      // 1. Update Backend
+      const res = await fetch("http://localhost:5000/api/workers/toggle-online", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: user.email,
+          isOnline: newStatus,
+          location: workerLocation
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message);
+
+      // 2. Socket Join/Leave Room
+      // We need the worker's category/skills. 
+      // Since we don't have them in state easily, let's hardcode or fetch.
+      // For this demo, I will assume the user has a "category" or "skill" in their profile 
+      // or we send *all* their skills.
+      // Let's assume we want to join rooms for "Plumber", "Electrician" etc.
+      // If we don't have profile, we can't join specific rooms.
+      // Let's join a generic "workers" room for now, or assume "Plumber" for testing if missing.
+
+      const skills = workerProfile?.typeOfWork || ["Plumber", "Electrician", "Painter"]; // Fallback
+
+      if (newStatus) {
+        skills.forEach(skill => {
+          socketRef.current.emit("join-room", skill);
+          console.log("Joined room:", skill);
+        });
+      } else {
+        skills.forEach(skill => {
+          socketRef.current.emit("leave-room", skill);
+        });
+      }
+
+    } catch (err) {
+      console.error("Failed to toggle online:", err);
+      // Revert on failure
+      setOnline(!newStatus);
+      alert("Failed to update status");
+    }
+  };
+
+  // Listen for New Problems
+  useEffect(() => {
+    if (!socketRef.current) return;
+
+    socketRef.current.on("new-problem", (problem) => {
+      console.log("New Problem Received:", problem);
+      // Play notification sound?
+      alert(`New Job Alert: ${problem.title}`);
+
+      // Add to history (or a new 'availableJobs' list)
+      // Mapping problem model to history model
+      const newJob = {
+        id: problem._id,
+        title: problem.title,
+        customer: "New Customer", // Name isn't in problem yet, maybe fetch or just show generic
+        location: problem.location?.city || "Unknown",
+        status: "pending",
+        earned: 0,
+        amount: 0, // Not set in problem yet
+        date: new Date().toISOString().split('T')[0]
+      };
+
+      setHistory(prev => [newJob, ...prev]);
+    });
+
+    return () => {
+      socketRef.current.off("new-problem");
+    };
+  }, []);
 
   // Define menuItems array
   const menuItems = [
@@ -116,26 +240,40 @@ export default function WorkerDashboard() {
     { key: "availability", icon: <Calendar size={18} />, label: "Availability & Schedule" },
     { key: "security", icon: <ShieldAlert size={18} />, label: "Security & Communication" },
     { key: "history", icon: <Briefcase size={18} />, label: "Work History" },
-    { key: "browse", icon: <Users size={18} />, label: "Browse Workers" },
+    { key: "find-work", icon: <Users size={18} />, label: "Find Work" },
   ];
 
-  // Fetch worker's location on dashboard load
+  // Fetch worker's GPS coordinates and use registered location as primary
   useEffect(() => {
     const fetchLocation = () => {
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
           async (position) => {
             const { latitude, longitude } = position.coords;
-            const locationData = await fetchCityAndCountry(latitude, longitude);
-            setWorkerLocation({
+            
+            // Always prioritize registered location
+            // GPS coordinates are for real-time tracking only
+            setWorkerLocation(prev => ({
+              ...prev,
               latitude,
               longitude,
-              city: locationData.city,
-              country: locationData.country,
-            });
+              // Keep the registered city, don't override with reverse geocoding
+              city: prev.city && prev.city !== "Unknown" ? prev.city : manualCity || "Unknown",
+              country: prev.country || "India"
+            }));
+            
+            console.log(`GPS: ${latitude}, ${longitude} | Location: ${manualCity || prev.city}`);
           },
           (error) => {
-            console.error("Unable to fetch location:", error);
+            console.error("Unable to fetch GPS location:", error);
+            // Even if GPS fails, we still have registered location
+            if (!manualCity && !workerLocation.city) {
+              setWorkerLocation(prev => ({
+                ...prev,
+                city: "Unknown",
+                country: "India"
+              }));
+            }
           }
         );
       } else {
@@ -144,38 +282,63 @@ export default function WorkerDashboard() {
     };
 
     fetchLocation();
-  }, []);
+  }, [manualCity]);
 
-  // Fetch workers based on category
-  useEffect(() => {
-    const fetchWorkers = async () => {
-      try {
-        let url = "http://localhost:5000/api/workers/all";
-        if (selectedCategory) {
-          url = `http://localhost:5000/api/workers/type/${selectedCategory}`;
-        }
-        
-        const response = await fetch(url);
-        const data = await response.json();
-        setWorkers(data);
-      } catch (error) {
-        console.error("Error fetching workers:", error);
-      }
-    };
-
-    if (activeSection === "browse") {
-      fetchWorkers();
+  // Function to save worker's location preference
+  const saveLocationPreference = async (city) => {
+    if (!user) return;
+    try {
+      const res = await fetch(`http://localhost:5000/api/workers/${user.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ location: city })
+      });
+      
+      if (!res.ok) throw new Error("Failed to save location");
+      
+      setManualCity(city);
+      setWorkerLocation(prev => ({
+        ...prev,
+        city: city,
+        country: "India"
+      }));
+      setLocationModalOpen(false);
+      alert("Location updated successfully!");
+    } catch (error) {
+      console.error("Error saving location:", error);
+      alert("Failed to save location");
     }
-  }, [selectedCategory, activeSection]);
+  };
 
   // Fetch city and country using reverse geocoding API
+  // Using OpenStreetMap Nominatim (free, reliable, no API key needed)
+  // NOTE: This is NOT used as primary - registered location takes priority
   const fetchCityAndCountry = async (latitude, longitude) => {
     try {
+      // Try Nominatim first (open street map - no rate limiting for reasonable use)
       const response = await fetch(
-        `https://geocode.xyz/${latitude},${longitude}?geoit=json`
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`,
+        {
+          headers: {
+            'Accept': 'application/json',
+            'User-Agent': 'EzyWork-App' // Nominatim requires User-Agent
+          }
+        }
       );
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
       const data = await response.json();
-      return { city: data.city || "Unknown", country: data.country || "Unknown" };
+      
+      // Extract city and country from Nominatim response
+      // Try to get the smallest locality first (village > town > city)
+      const address = data.address || {};
+      const city = address.village || address.town || address.city || address.county || "Unknown";
+      const country = address.country || "Unknown";
+      
+      return { city, country };
     } catch (error) {
       console.error("Error fetching city and country:", error);
       return { city: "Unknown", country: "Unknown" };
@@ -192,7 +355,7 @@ export default function WorkerDashboard() {
     // Validate OTP format
     const otpArray = otpValue.split("");
     const otpValidation = validOtp(otpArray);
-    
+
     if (!otpValidation.ok) {
       alert(otpValidation.message);
       return;
@@ -242,15 +405,51 @@ export default function WorkerDashboard() {
   }
 
   // Fraud report submit
-  function submitFraudReport(details) {
-    setFraudReportOpen(false);
-    alert("Fraud report submitted. Support will contact you shortly.");
-  }
+  // Handle Job Acceptance
+  const handleAcceptJob = async (jobId) => {
+    if (!user) return;
+    try {
+      const res = await fetch(`http://localhost:5000/api/problems/${jobId}/accept`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workerId: user._id || user.id }) // Send worker ID
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message);
+
+      alert("Job Accepted Successfully!");
+
+      // Add to active jobs (history with pending status for now, or accepted)
+      const newJob = {
+        id: data.problem._id,
+        title: data.problem.title,
+        customer: "Customer", // You might want to fetch user details or send them in response
+        location: data.problem.location?.city || "Unknown",
+        status: "pending", // Start as pending until finished? Or "accepted"
+        earned: 0,
+        amount: 0, // Needs to be negotiated or set
+        date: new Date().toISOString().split('T')[0]
+      };
+      setHistory(prev => [newJob, ...prev]);
+      setActiveSection("job"); // Switch to My Jobs view
+
+    } catch (error) {
+      console.error("Error accepting job:", error);
+      alert("Failed to accept job: " + error.message);
+    }
+  };
 
   return (
     <div className="flex min-h-screen bg-gray-50 dark:bg-[#0b1220] dark:text-gray-100">
+      {/* Shift Start Modal (Overlay if Offline) */}
+      {!online && (
+        <ShiftStartModal
+          onStart={() => handleToggleOnline()}
+          location={workerLocation}
+        />
+      )}
       {/* Fixed Sidebar */}
-      
+
       <aside className="w-72 bg-white dark:bg-[#0f172a] border-r dark:border-slate-800 shadow-lg flex flex-col justify-between fixed h-screen">
         <div>
           <div className="py-6 px-6 text-center">
@@ -263,11 +462,10 @@ export default function WorkerDashboard() {
               <button
                 key={item.key}
                 onClick={() => setActiveSection(item.key)}
-                className={`w-full text-left flex items-center gap-3 px-4 py-2 rounded-md transition font-medium text-sm ${
-                  activeSection === item.key
-                    ? "bg-green-50 text-green-700"
-                    : "hover:bg-gray-100 text-gray-700"
-                }`}
+                className={`w-full text-left flex items-center gap-3 px-4 py-2 rounded-md transition font-medium text-sm ${activeSection === item.key
+                  ? "bg-green-50 text-green-700"
+                  : "hover:bg-gray-100 text-gray-700"
+                  }`}
               >
                 {item.icon}
                 <span>{item.label}</span>
@@ -287,17 +485,16 @@ export default function WorkerDashboard() {
               </div>
             </div>
             <button
-              onClick={() => setOnline((s) => !s)}
-              className={`px-3 py-1 rounded-md text-sm font-medium ${
-                online ? "bg-green-600 text-white" : "bg-gray-100 text-gray-700"
-              }`}
+              onClick={handleToggleOnline}
+              className={`px-3 py-1 rounded-md text-sm font-medium ${online ? "bg-green-600 text-white" : "bg-gray-100 text-gray-700"
+                }`}
               aria-pressed={online}
             >
               {online ? "Online" : "Go Online"}
             </button>
           </div>
           <div className="flex items-center justify-between">
-            <button className="text-sm text-gray-600 hover:text-gray-800">Settings</button>
+            <button onClick={() => setLocationModalOpen(true)} className="text-sm text-gray-600 hover:text-gray-800">Settings</button>
             <button className="text-red-500 hover:bg-red-50 px-2 py-1 rounded-md">Logout</button>
           </div>
         </div>
@@ -349,11 +546,10 @@ export default function WorkerDashboard() {
         {activeSection === "history" && (
           <HistorySection history={history} />
         )}
-        {activeSection === "browse" && (
-          <BrowseWorkersSection 
-            workers={workers} 
-            selectedCategory={selectedCategory} 
-            setSelectedCategory={setSelectedCategory} 
+        {activeSection === "find-work" && (
+          <FindWorkSection
+            workerCategory={workerProfile?.typeOfWork ? workerProfile.typeOfWork[0] : ""}
+            onAccept={handleAcceptJob}
           />
         )}
       </main>
@@ -396,6 +592,15 @@ export default function WorkerDashboard() {
         <PaymentSuccessModal
           message={paymentSuccess.message}
           onClose={() => setPaymentSuccess({ open: false, message: "" })}
+        />
+      )}
+
+      {/* Location Settings Modal */}
+      {locationModalOpen && (
+        <LocationSettingsModal
+          currentCity={manualCity || workerLocation.city || ""}
+          onClose={() => setLocationModalOpen(false)}
+          onSave={saveLocationPreference}
         />
       )}
     </div>
@@ -696,23 +901,199 @@ function HistorySection({ history }) {
   return (
     <div className="bg-white p-6 rounded-xl shadow-sm">
       <h3 className="font-semibold mb-4">Work History</h3>
-      <div className="space-y-3">
-        {history.map((h) => (
-          <div key={h.id} className="flex items-center justify-between border p-3 rounded-md">
-            <div>
-              <div className="font-medium">{h.title} <span className="text-xs text-gray-400">{h.date}</span></div>
-              <div className="text-sm text-gray-500">{h.customer} • {h.location}</div>
-              <div className="text-xs text-gray-400">Amount: ${h.amount || 0}</div>
-            </div>
-            <div className="text-right">
-              <div className="font-semibold">{h.status === 'completed' ? `$${h.earned}` : <span className="text-sm text-gray-500">{h.status === 'otp-verified' ? 'payment pending' : h.status}</span>}</div>
-            </div>
-          </div>
-        ))}
+      <div className="overflow-x-auto">
+        <table className="w-full text-left">
+          <thead>
+            <tr className="border-b text-sm text-gray-500">
+              <th className="py-2">Job</th>
+              <th className="py-2">Date</th>
+              <th className="py-2">Customer</th>
+              <th className="py-2">Status</th>
+              <th className="py-2">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {history.map((h) => (
+              <tr key={h.id} className="border-b last:border-0 hover:bg-gray-50">
+                <td className="py-3 font-medium">{h.title}</td>
+                <td className="py-3 text-sm text-gray-500">{h.date}</td>
+                <td className="py-3 text-sm text-gray-500">{h.customer}</td>
+                <td className="py-3">
+                  <Badge>{h.status}</Badge>
+                </td>
+                <td className="py-3 text-sm font-semibold">${h.earned}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
 }
+
+/* ------------------ Find Work Section (Job Board) ------------------ */
+function FindWorkSection({ workerCategory, onAccept }) {
+  const [problems, setProblems] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchProblems = async () => {
+      try {
+        // Fetch open problems. 
+        // We can filter by category if we know the worker's category.
+        // For now, fetching all open problems or filtering by 'General' if undefined.
+        let url = "http://localhost:5000/api/problems/open";
+        if (workerCategory) {
+          url += `?category=${workerCategory}`;
+        }
+
+        const res = await fetch(url);
+        const data = await res.json();
+        setProblems(data);
+      } catch (err) {
+        console.error("Failed to fetch problems", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProblems();
+
+    // Optional: Poll every 10 seconds or rely on socket 'new-problem' event in parent
+    const interval = setInterval(fetchProblems, 10000);
+    return () => clearInterval(interval);
+
+  }, [workerCategory]);
+
+  if (loading) return <div>Loading available jobs...</div>;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h3 className="text-xl font-semibold">Available Jobs</h3>
+        <Badge>{problems.length} Jobs Found</Badge>
+      </div>
+
+      <div className="grid gap-4">
+        {problems.length === 0 ? (
+          <div className="text-center py-10 bg-white rounded-lg">
+            <p className="text-gray-500">No matching jobs available right now.</p>
+            <p className="text-sm text-gray-400">Wait for notifications or check back later.</p>
+          </div>
+        ) : (
+          problems.map(problem => (
+            <div key={problem._id} className="bg-white p-5 rounded-lg shadow-sm border border-gray-100 flex justify-between items-center hover:shadow-md transition">
+              <div>
+                <h4 className="font-bold text-lg text-gray-800">{problem.title}</h4>
+                <div className="flex items-center gap-2 text-sm text-gray-500 mt-1">
+                  <span className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded text-xs font-semibold">{problem.category}</span>
+                  <span>• {problem.location?.city || "Unknown Location"}</span>
+                  <span>• Posted {new Date(problem.createdAt).toLocaleTimeString()}</span>
+                </div>
+                <p className="text-gray-600 mt-2 text-sm">{problem.description}</p>
+              </div>
+              <button
+                onClick={() => onAccept(problem._id)}
+                className="bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded-md font-medium shadow-sm transition transform active:scale-95"
+              >
+                Accept Job
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------ Shift Start Modal ------------------ */
+function ShiftStartModal({ onStart, location = {} }) {
+  // Get today's date in local timezone (not UTC)
+  const getTodayDateString = () => {
+    const date = new Date();
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+  
+  // Get current time in local timezone
+  const getCurrentTimeString = () => {
+    const date = new Date();
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${hours}:${minutes}`;
+  };
+  
+  const [date, setDate] = useState(getTodayDateString());
+  const [time, setTime] = useState(getCurrentTimeString());
+  const [locationInput, setLocationInput] = useState(location && location.city ? location.city : "");
+
+  useEffect(() => {
+    if (location?.city) setLocationInput(location.city);
+  }, [location]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="bg-white rounded-xl shadow-2xl p-8 max-w-md w-full mx-4">
+        <div className="text-center mb-6">
+          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <User size={32} className="text-green-600" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900">Start Your Shift</h2>
+          <p className="text-gray-500 mt-2">Ready to take on new jobs? Confirm your details below.</p>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Start Time</label>
+            <input
+              type="time"
+              value={time}
+              onChange={(e) => setTime(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Current Location</label>
+            <input
+              type="text"
+              value={locationInput}
+              placeholder="Detecting location..."
+              readOnly
+              className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-gray-500 cursor-not-allowed"
+            />
+            <p className="text-xs text-gray-400 mt-1">Location is automatically detected</p>
+          </div>
+        </div>
+
+        <button
+          onClick={onStart}
+          className="w-full mt-8 bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-xl shadow-lg transition transform hover:scale-[1.02] active:scale-[0.98]"
+        >
+          Start Work Now
+        </button>
+
+        <p className="text-xs text-center text-gray-400 mt-4">
+          By starting, you agree to receive job notifications.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// Helper icon import (Mocking User icon if not imported, or just use Lucide existing imports)
+
+
 
 /* ------------------ OTP Modal ------------------ */
 function OtpModal({ jobId, onClose, onVerify }) {
@@ -728,7 +1109,7 @@ function OtpModal({ jobId, onClose, onVerify }) {
     // Validate OTP format before calling onVerify
     const otpArray = otp.split("");
     const otpValidation = validOtp(otpArray);
-    
+
     if (!otpValidation.ok) {
       setError(otpValidation.message);
       return;
@@ -743,13 +1124,13 @@ function OtpModal({ jobId, onClose, onVerify }) {
       <div className="bg-white p-6 rounded-lg w-96 shadow-lg">
         <h4 className="font-semibold mb-2">Enter OTP to complete job</h4>
         <p className="text-sm text-gray-500 mb-4">Ask the customer for the 6-digit OTP and enter it here.</p>
-        <input 
-          value={otp} 
+        <input
+          value={otp}
           onChange={(e) => {
             setOtp(e.target.value);
             setError("");
-          }} 
-          placeholder="Enter 6-digit OTP" 
+          }}
+          placeholder="Enter 6-digit OTP"
           className={`w-full border rounded-md px-3 py-2 mb-2 ${error ? 'border-red-500' : ''}`}
           maxLength="6"
           type="number"
@@ -772,7 +1153,7 @@ function PaymentModal({ job, onClose, onConfirm }) {
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white p-6 rounded-lg w-[26rem] shadow-lg">
+      <div className="bg-white p-6 rounded-lg w-104 shadow-lg">
         <h4 className="font-semibold mb-2">Collect Payment</h4>
         <p className="text-sm text-gray-500 mb-3">
           {job.title} • {job.customer}
@@ -887,156 +1268,93 @@ function FraudReportModal({ onClose, onSubmit }) {
   );
 }
 
-/* ------------------ Browse Workers Section ------------------ */
-function BrowseWorkersSection({ workers, selectedCategory, setSelectedCategory }) {
-  const [searchQuery, setSearchQuery] = useState("");
-  const categories = [
-    { label: "Plumber", keywords: ["plumber", "plumbing", "pipe"] },
-    { label: "Electrician", keywords: ["electrician", "electrical", "wiring"] },
-    { label: "Carpenter", keywords: ["carpenter", "carpentry", "wood"] },
-    { label: "Painter", keywords: ["painter", "painting", "paint"] },
-    { label: "Welder", keywords: ["welder", "welding", "weld"] },
-    { label: "Mechanic", keywords: ["mechanic", "mechanical", "repair"] },
-    { label: "Driver", keywords: ["driver", "driving", "chauffeur"] },
+/* ------------------ Location Settings Modal ------------------ */
+function LocationSettingsModal({ currentCity, onClose, onSave }) {
+  const [city, setCity] = useState(currentCity);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  
+  // Common punjab cities and towns
+  const punjabLocations = [
+    "Jansla", "Rupnagar", "Mohali", "Chandigarh", "Patiala", "Ludhiana", 
+    "Amritsar", "Jalandhar", "Bathinda", "Hoshiarpur", "Nawanshahr",
+    "Sangrur", "Moga", "Muktsar", "Ferozepur", "Kapurthala", "Barnala"
   ];
-
-  const matchedCategoryLabel = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    if (!query) return "";
-    const match = categories.find((category) =>
-      category.keywords.some((keyword) => query.includes(keyword))
-    );
-    return match ? match.label : "";
-  }, [searchQuery]);
-
-  useEffect(() => {
-    if (matchedCategoryLabel && matchedCategoryLabel !== selectedCategory) {
-      setSelectedCategory(matchedCategoryLabel);
-      return;
-    }
-    if (!searchQuery.trim() && selectedCategory) {
-      setSelectedCategory("");
-    }
-  }, [matchedCategoryLabel, searchQuery, selectedCategory, setSelectedCategory]);
-
-  const filteredWorkers = useMemo(() => {
-    if (!selectedCategory) return workers;
-    const selected = selectedCategory.toLowerCase();
-    return workers.filter((worker) => {
-      const skills = Array.isArray(worker.typeOfWork) ? worker.typeOfWork : [];
-      const extraSkills = Array.isArray(worker.skills) ? worker.skills : [];
-      const allSkills = [...skills, ...extraSkills].map((s) => String(s).toLowerCase());
-      return allSkills.some((skill) => skill.includes(selected));
-    });
-  }, [workers, selectedCategory]);
+  
+  const filtered = punjabLocations.filter(loc => 
+    loc.toLowerCase().includes(city.toLowerCase())
+  );
 
   return (
-    <div className="space-y-6">
-      {/* Search + Filter by Category */}
-      <div className="bg-white p-6 rounded-xl shadow-sm">
-        <h3 className="font-semibold mb-4">Search or Filter by Category</h3>
-        <div className="flex flex-col md:flex-row md:items-center gap-3 mb-4">
-          <input
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="e.g. I need a painter"
-            className="w-full md:flex-1 border rounded-md px-3 py-2"
-          />
-          <button
-            onClick={() => setSearchQuery("")}
-            className="px-4 py-2 rounded-md border bg-white"
-          >
-            Clear
-          </button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="bg-white rounded-xl shadow-2xl p-8 max-w-md w-full mx-4">
+        <div className="mb-6">
+          <h2 className="text-2xl font-bold text-gray-900">Update Location</h2>
+          <p className="text-gray-500 mt-2">Correct your work location so customers can find you accurately.</p>
         </div>
-        {matchedCategoryLabel ? (
-          <p className="text-sm text-gray-600 mb-4">
-            Detected role: <strong>{matchedCategoryLabel}</strong>. Showing all {matchedCategoryLabel.toLowerCase()}s.
-          </p>
-        ) : (
-          <p className="text-sm text-gray-500 mb-4">
-            Try natural language like “I need a painter”.
-          </p>
-        )}
-        <div className="flex gap-3 flex-wrap">
-          <button
-            onClick={() => setSelectedCategory("")}
-            className={`px-4 py-2 rounded-md ${
-              selectedCategory === "" ? "bg-green-600 text-white" : "bg-gray-100 text-gray-700"
-            }`}
-          >
-            All Workers
-          </button>
-          {categories.map((category) => (
-            <button
-              key={category.label}
-              onClick={() => setSelectedCategory(category.label)}
-              className={`px-4 py-2 rounded-md ${
-                selectedCategory === category.label ? "bg-green-600 text-white" : "bg-gray-100 text-gray-700"
-              }`}
-            >
-              {category.label}
-            </button>
-          ))}
-        </div>
-      </div>
 
-      {/* Workers List */}
-      <div className="bg-white p-6 rounded-xl shadow-sm">
-        <h3 className="font-semibold mb-4">
-          {selectedCategory ? `${selectedCategory}s` : "All Workers"} ({filteredWorkers.length})
-        </h3>
-        
-        {filteredWorkers.length === 0 ? (
-          <p className="text-gray-500">No workers found in this category.</p>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredWorkers.map((worker) => (
-              <div key={worker._id} className="border rounded-lg p-4 hover:shadow-md transition">
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <h4 className="font-semibold text-lg">{worker.fullName || worker.name}</h4>
-                    <p className="text-sm text-gray-500">{worker.location || "Location not specified"}</p>
-                  </div>
-                  <div className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-medium">
-                    {worker.yearsOfExperience || 0} yrs
-                  </div>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Your City/Town</label>
+            <div className="relative">
+              <input
+                type="text"
+                value={city}
+                onChange={(e) => {
+                  setCity(e.target.value);
+                  setShowSuggestions(true);
+                }}
+                onFocus={() => setShowSuggestions(true)}
+                placeholder="e.g., Jansla, Rupnagar..."
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 outline-none"
+              />
+              
+              {/* Suggestions dropdown */}
+              {showSuggestions && filtered.length > 0 && (
+                <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-300 rounded-lg shadow-lg z-50 max-h-40 overflow-y-auto">
+                  {filtered.map((location) => (
+                    <button
+                      key={location}
+                      onClick={() => {
+                        setCity(location);
+                        setShowSuggestions(false);
+                      }}
+                      className="w-full text-left px-3 py-2 hover:bg-green-50 transition border-b last:border-b-0"
+                    >
+                      <MapPin size={14} className="inline mr-2 text-gray-500" />
+                      {location}, Punjab, India
+                    </button>
+                  ))}
                 </div>
-                
-                <div className="space-y-2 mb-3">
-                  <div className="flex items-center gap-2 text-sm">
-                    <Phone size={14} className="text-gray-500" />
-                    <span>{worker.mobileNumber || worker.number}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <MapPin size={14} className="text-gray-500" />
-                    <span>{worker.email}</span>
-                  </div>
-                </div>
-
-                <div className="mb-3">
-                  <p className="text-xs text-gray-500 mb-1">Skills:</p>
-                  <div className="flex gap-2 flex-wrap">
-                    {worker.typeOfWork && worker.typeOfWork.length > 0 ? (
-                      worker.typeOfWork.map((skill, idx) => (
-                        <span key={idx} className="bg-blue-50 text-blue-700 px-2 py-1 rounded text-xs">
-                          {skill}
-                        </span>
-                      ))
-                    ) : (
-                      <span className="text-xs text-gray-400">No skills listed</span>
-                    )}
-                  </div>
-                </div>
-
-                <button className="w-full bg-green-600 text-white py-2 rounded-md hover:bg-green-700 transition text-sm">
-                  Contact Worker
-                </button>
-              </div>
-            ))}
+              )}
+            </div>
+            <p className="text-xs text-gray-400 mt-1">This is your registered work location. Ensure it's accurate.</p>
           </div>
-        )}
+
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+            <p className="text-xs text-blue-800">
+              <strong>Note:</strong> Your location is used to match jobs near you. GPS coordinates are also captured for real-time tracking.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex gap-3 mt-6">
+          <button
+            onClick={onClose}
+            className="flex-1 px-4 py-2 rounded-lg border border-gray-300 text-gray-700 font-medium hover:bg-gray-50 transition"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => onSave(city)}
+            disabled={!city}
+            className="flex-1 px-4 py-2 rounded-lg bg-green-600 text-white font-medium hover:bg-green-700 transition disabled:opacity-50"
+          >
+            Save Location
+          </button>
+        </div>
       </div>
     </div>
   );
 }
+
+

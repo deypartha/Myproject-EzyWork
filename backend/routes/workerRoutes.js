@@ -1,5 +1,5 @@
 import express from 'express';
-import { login, register, addWorkerDetails, getAllWorkers, getWorkersByType, getWorkerById } from '../controllers/workerController.js';
+import { login, register, addWorkerDetails, getAllWorkers, getWorkersByType, getWorkerById, toggleOnline, updateWorker } from '../controllers/workerController.js';
 
 const router = express.Router();
 
@@ -11,6 +11,8 @@ router.post('/register', register);
 router.post('/details', addWorkerDetails);
 router.get('/all', getAllWorkers);
 router.get('/type/:type', getWorkersByType);
+router.put('/toggle-online', toggleOnline);
 router.get('/:id', getWorkerById);
+router.put('/:id', updateWorker);
 
 export default router;

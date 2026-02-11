@@ -110,4 +110,44 @@ const getWorkerById = async(req, res) => {
     }
 }
 
-export { login, register, addWorkerDetails, getAllWorkers, getWorkersByType, getWorkerById };
+// Toggle Online Status
+const toggleOnline = async(req, res) => {
+    try {
+        const { email, isOnline, location } = req.body;
+        const worker = await Worker.findOne({ email });
+        
+        if (!worker) {
+            return res.status(httpStatus.NOT_FOUND).json({ message: 'Worker not found' });
+        }
+
+        worker.isOnline = isOnline;
+        if (location) {
+            worker.currentLocation = location;
+        }
+
+        await worker.save();
+        res.status(httpStatus.OK).json({ message: 'Status updated', isOnline: worker.isOnline });
+    } catch(error) {
+        res.status(httpStatus.INTERNAL_SERVER_ERROR).json({ message: 'An error occurred', error: error.message });
+    }
+}
+
+// Update worker details by ID
+const updateWorker = async(req, res) => {
+    try {
+        const { id } = req.params;
+        const updateData = req.body;
+        
+        const worker = await Worker.findByIdAndUpdate(id, updateData, { new: true }).select('-password');
+        
+        if (!worker) {
+            return res.status(httpStatus.NOT_FOUND).json({ message: 'Worker not found' });
+        }
+        
+        res.status(httpStatus.OK).json({ message: 'Worker updated successfully', worker });
+    } catch(error) {
+        res.status(httpStatus.INTERNAL_SERVER_ERROR).json({ message: 'An error occurred while updating worker', error: error.message });
+    }
+}
+
+export { login, register, addWorkerDetails, getAllWorkers, getWorkersByType, getWorkerById, toggleOnline, updateWorker };
