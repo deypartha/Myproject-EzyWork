@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { FaMicrophone, FaCamera, FaStar, FaMapMarkerAlt } from "react-icons/fa";
+import { FaMicrophone, FaCamera, FaStar, FaMapMarkerAlt, FaQuestionCircle, FaTimes, FaPhone, FaEnvelope, FaComments } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../../context/AuthContext";
 import API_BASE_URL from "../../../config/api";
@@ -30,6 +30,80 @@ function User() {
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const navigate = useNavigate();
+  const [helpModalOpen, setHelpModalOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [showQuestions, setShowQuestions] = useState(true);
+  const chatEndRef = useRef(null);
+
+  // Predefined FAQ
+  const faqData = [
+    {
+      question: "How do I book a worker?",
+      answer: "To book a worker: 1) Describe your problem on the main page, 2) Browse through suggested workers, 3) Select a worker that fits your needs, 4) Confirm booking and choose payment method. You'll receive an OTP after booking!"
+    },
+    {
+      question: "What payment methods are accepted?",
+      answer: "We accept multiple payment methods: UPI (Google Pay, PhonePe, Paytm), Credit/Debit Cards, Net Banking, and Cash on Completion. You can choose 'Pay Now' or 'Pay Later' options."
+    },
+    {
+      question: "How do I rate a worker?",
+      answer: "After work completion: 1) Enter the OTP provided by the worker, 2) Complete the payment, 3) You'll be prompted to rate the worker on a scale of 1-5 stars and leave a review. Your feedback helps other users!"
+    },
+    {
+      question: "What if the worker doesn't show up?",
+      answer: "If a worker doesn't show up: 1) Contact our support immediately, 2) You can cancel the booking without any charges, 3) We'll help you find another worker quickly, 4) The worker may face penalties for no-show."
+    },
+    {
+      question: "Is my payment secure?",
+      answer: "Yes! All payments are 100% secure. We use industry-standard encryption and comply with PCI DSS standards. Your payment information is never stored on our servers. We also offer buyer protection for all transactions."
+    },
+    {
+      question: "How do I cancel a booking?",
+      answer: "To cancel: 1) Go to 'Pending' section, 2) Find your booking, 3) Click 'Cancel' button. Free cancellation is available up to 1 hour before scheduled time. After that, cancellation charges may apply."
+    },
+    {
+      question: "Can I contact the worker directly?",
+      answer: "Yes! After booking confirmation, you'll receive the worker's contact number. You can call them to discuss details, share your location, or coordinate timing. Keep all communication professional."
+    },
+    {
+      question: "What if I'm not satisfied with the work?",
+      answer: "If you're not satisfied: 1) Don't enter the OTP immediately, 2) Discuss concerns with the worker first, 3) Contact our support team, 4) We offer a satisfaction guarantee and will help resolve the issue or arrange a replacement."
+    }
+  ];
+
+  // Handle question click
+  const handleQuestionClick = (faq) => {
+    // Add user question
+    const userMessage = {
+      type: 'user',
+      text: faq.question,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+
+    // Add bot answer after a short delay
+    setChatMessages(prev => [...prev, userMessage]);
+    setShowQuestions(false);
+
+    setTimeout(() => {
+      const botMessage = {
+        type: 'bot',
+        text: faq.answer,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+      setChatMessages(prev => [...prev, botMessage]);
+    }, 500);
+  };
+
+  // Reset chat
+  const resetChat = () => {
+    setChatMessages([]);
+    setShowQuestions(true);
+  };
+
+  // Auto scroll to bottom
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages]);
 
   const isPlumberRequest = (text) => {
     if (!text) return false;
@@ -721,6 +795,116 @@ function User() {
                   </button>
                 </div>
               ))}
+          </div>
+        </div>
+      )}
+
+      {/* Floating Help Button */}
+      <button
+        onClick={() => setHelpModalOpen(true)}
+        className="fixed bottom-6 right-6 w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-full shadow-2xl hover:shadow-blue-500/50 hover:scale-110 transition-all duration-300 flex items-center justify-center z-50 group"
+        title="Help & Support"
+      >
+        <FaQuestionCircle className="text-2xl group-hover:rotate-12 transition-transform" />
+      </button>
+
+      {/* Help Modal - Chat Interface */}
+      {helpModalOpen && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full h-[600px] flex flex-col transform transition-all">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-4 rounded-t-2xl relative flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+                  <FaComments className="text-xl" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold">EzyWork Support</h2>
+                  <p className="text-xs text-blue-100">Online • Reply in seconds</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setHelpModalOpen(false);
+                  resetChat();
+                }}
+                className="text-white/80 hover:text-white hover:rotate-90 transition-all duration-300"
+              >
+                <FaTimes className="text-xl" />
+              </button>
+            </div>
+
+            {/* Chat Messages Area */}
+            <div className="flex-1 overflow-y-auto p-4 bg-gray-50 space-y-3">
+              {/* Welcome Message */}
+              {chatMessages.length === 0 && (
+                <div className="flex gap-2 items-start">
+                  <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0">
+                    <FaComments className="text-white text-sm" />
+                  </div>
+                  <div className="bg-white rounded-2xl rounded-tl-none p-3 shadow-sm max-w-[80%]">
+                    <p className="text-sm text-gray-800">
+                      👋 Hi! I'm your EzyWork assistant. How can I help you today?
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">Just now</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Chat Messages */}
+              {chatMessages.map((msg, index) => (
+                <div key={index} className={`flex gap-2 items-start ${msg.type === 'user' ? 'flex-row-reverse' : ''}`}>
+                  {msg.type === 'bot' && (
+                    <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0">
+                      <FaComments className="text-white text-sm" />
+                    </div>
+                  )}
+                  <div className={`rounded-2xl p-3 shadow-sm max-w-[80%] ${msg.type === 'user'
+                      ? 'bg-blue-500 text-white rounded-tr-none'
+                      : 'bg-white text-gray-800 rounded-tl-none'
+                    }`}>
+                    <p className="text-sm">{msg.text}</p>
+                    <p className={`text-xs mt-1 ${msg.type === 'user' ? 'text-blue-100' : 'text-gray-400'}`}>
+                      {msg.timestamp}
+                    </p>
+                  </div>
+                </div>
+              ))}
+
+              <div ref={chatEndRef} />
+            </div>
+
+            {/* Questions Section */}
+            <div className="border-t border-gray-200 p-4 bg-white rounded-b-2xl max-h-[250px] overflow-y-auto">
+              {showQuestions ? (
+                <div>
+                  <p className="text-xs text-gray-500 mb-3 font-medium">Select a question:</p>
+                  <div className="space-y-2">
+                    {faqData.map((faq, index) => (
+                      <button
+                        key={index}
+                        onClick={() => handleQuestionClick(faq)}
+                        className="w-full text-left px-3 py-2.5 text-sm bg-blue-50 hover:bg-blue-100 text-gray-700 rounded-lg transition-colors border border-blue-100 hover:border-blue-200"
+                      >
+                        💬 {faq.question}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center">
+                  <button
+                    onClick={resetChat}
+                    className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-medium transition-colors"
+                  >
+                    ← Back to Questions
+                  </button>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Need more help? Call us at +91 1800-123-4567
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
