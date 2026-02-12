@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import axios from "axios";
+import API_BASE_URL from "../config/api";
 
 const AuthContext = createContext();
 
@@ -12,7 +13,7 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const savedToken = localStorage.getItem("token");
     const savedUser = localStorage.getItem("user");
-    
+
     if (savedToken && savedUser) {
       setToken(savedToken);
       setUser(JSON.parse(savedUser));
@@ -25,19 +26,19 @@ export const AuthProvider = ({ children }) => {
   // Login function
   const login = async (email, password) => {
     try {
-      const response = await axios.post("http://localhost:5000/api/auth/signin", {
+      const response = await axios.post(`${API_BASE_URL}/api/auth/signin`, {
         email,
         password,
       });
 
       const { token, user: userData } = response.data;
-      
+
       setToken(token);
       setUser(userData);
       localStorage.setItem("token", token);
       localStorage.setItem("user", JSON.stringify(userData));
       axios.defaults.headers.common["Authorization"] = `Bearer ${token}`;
-      
+
       return { success: true, user: userData };
     } catch (error) {
       return {
@@ -50,7 +51,7 @@ export const AuthProvider = ({ children }) => {
   // Signup function
   const signup = async (name, email, password, role) => {
     try {
-      const response = await axios.post("http://localhost:5000/api/auth/signup", {
+      const response = await axios.post(`${API_BASE_URL}/api/auth/signup`, {
         name,
         email,
         password,
@@ -65,7 +66,7 @@ export const AuthProvider = ({ children }) => {
         localStorage.setItem("token", token);
         localStorage.setItem("user", JSON.stringify(userData));
         axios.defaults.headers.common["Authorization"] = `Bearer ${token}`;
-        
+
         return {
           success: true,
           message: response.data.msg || "Account created successfully",

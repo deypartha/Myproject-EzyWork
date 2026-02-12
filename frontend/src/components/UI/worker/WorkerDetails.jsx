@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Home } from "lucide-react";
 import { useAuth } from "../../../context/AuthContext";
+import API_BASE_URL from "../../../config/api";
 
 function WorkerDetails() {
   const navigate = useNavigate();
@@ -53,9 +54,9 @@ function WorkerDetails() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     try {
-      const response = await fetch("http://localhost:5000/api/workers/details", {
+      const response = await fetch(`${API_BASE_URL}/api/workers/details`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -80,7 +81,7 @@ function WorkerDetails() {
   return (
     <div className="min-h-screen bg-[#0b1220] flex flex-col items-center justify-center px-6 md:px-16">
       <div className="absolute top-4 left-4">
-        <button 
+        <button
           onClick={() => navigate('/')}
           className="flex items-center gap-2 px-4 py-2 bg-[#0f172a] text-gray-100 rounded-lg shadow-md hover:shadow-lg hover:bg-[#1e293b] transition-all border border-slate-700"
         >
@@ -118,23 +119,23 @@ function WorkerDetails() {
             className="px-4 py-3 bg-[#1e293b] border border-slate-700 text-gray-100 placeholder-gray-400 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
           />
           <input
-          type="tel"
-          placeholder="Enter your contact number"
-          name="mobileNumber"
-          value={workerDetails.mobileNumber}
-          pattern="[0-9]{10}"
-          maxLength={10}
-          onChange={handleChange}
-          className="px-4 py-3 bg-[#1e293b] border border-slate-700 text-gray-100 placeholder-gray-400 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500" required></input>
+            type="tel"
+            placeholder="Enter your contact number"
+            name="mobileNumber"
+            value={workerDetails.mobileNumber}
+            pattern="[0-9]{10}"
+            maxLength={10}
+            onChange={handleChange}
+            className="px-4 py-3 bg-[#1e293b] border border-slate-700 text-gray-100 placeholder-gray-400 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500" required></input>
           <input
-          type="email"
-          placeholder="Enter your email id"
-          name="email"
-          value={workerDetails.email}
-          pattern="[a-zA-Z0-9.-_+%]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
-          onChange={handleChange}
-          readOnly
-          className="px-4 py-3 bg-[#1e293b] border border-slate-700 text-gray-100 placeholder-gray-400 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 cursor-not-allowed opacity-75" required></input>
+            type="email"
+            placeholder="Enter your email id"
+            name="email"
+            value={workerDetails.email}
+            pattern="[a-zA-Z0-9.-_+%]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
+            onChange={handleChange}
+            readOnly
+            className="px-4 py-3 bg-[#1e293b] border border-slate-700 text-gray-100 placeholder-gray-400 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 cursor-not-allowed opacity-75" required></input>
           <select
             name="typeOfWork"
             value={workerDetails.typeOfWork}

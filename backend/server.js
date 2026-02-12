@@ -22,7 +22,7 @@ const io = new Server(httpServer, {
 });
 
 // Prefer environment values, but allow defaults for local development.
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 const MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/ezywork_db";
 
 app.use(cors());

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react"; // Added useRef
 import { io } from "socket.io-client"; // Added socket.io-client
 import { useAuth } from "../../../context/AuthContext"; // Added useAuth
+import API_BASE_URL from "../../../config/api";
 import {
   Users,
   User,
@@ -116,7 +117,7 @@ export default function WorkerDashboard() {
 
   // Initialize Socket
   useEffect(() => {
-    socketRef.current = io("http://localhost:5000");
+    socketRef.current = io(API_BASE_URL);
     return () => {
       socketRef.current.disconnect();
     };
@@ -127,7 +128,7 @@ export default function WorkerDashboard() {
     if (user && user.id) {
       const fetchWorkerProfile = async () => {
         try {
-          const response = await fetch(`http://localhost:5000/api/workers/${user.id}`);
+          const response = await fetch(`${API_BASE_URL}/api/workers/${user.id}`);
           if (response.ok) {
             const data = await response.json();
             setWorkerProfile(data);
@@ -159,7 +160,7 @@ export default function WorkerDashboard() {
 
     try {
       // 1. Update Backend
-      const res = await fetch("http://localhost:5000/api/workers/toggle-online", {
+      const res = await fetch(`${API_BASE_URL}/api/workers/toggle-online`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -243,37 +244,102 @@ export default function WorkerDashboard() {
     { key: "find-work", icon: <Users size={18} />, label: "Find Work" },
   ];
 
-  // Fetch worker's GPS coordinates and use registered location as primary
+  // Fetch worker's location using GPS coordinates with reverse geocoding
   useEffect(() => {
-    const fetchLocation = () => {
+    const fetchLocation = async () => {
+      // If manual city is set, use it as priority
+      if (manualCity) {
+        setWorkerLocation(prev => ({
+          ...prev,
+          city: manualCity,
+          country: "India"
+        }));
+      }
+
+      // Try to get GPS coordinates from browser
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
           async (position) => {
             const { latitude, longitude } = position.coords;
-            
-            // Always prioritize registered location
-            // GPS coordinates are for real-time tracking only
-            setWorkerLocation(prev => ({
-              ...prev,
-              latitude,
-              longitude,
-              // Keep the registered city, don't override with reverse geocoding
-              city: prev.city && prev.city !== "Unknown" ? prev.city : manualCity || "Unknown",
-              country: prev.country || "India"
-            }));
-            
-            console.log(`GPS: ${latitude}, ${longitude} | Location: ${manualCity || prev.city}`);
+
+            // Use reverse geocoding to get accurate city name from GPS coordinates
+            try {
+              const response = await fetch(
+                `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`,
+                {
+                  headers: {
+                    'Accept': 'application/json',
+                    'User-Agent': 'EzyWork-App'
+                  }
+                }
+              );
+
+              if (response.ok) {
+                const data = await response.json();
+                const address = data.address || {};
+
+                // Extract city from various possible fields
+                const city = manualCity ||
+                  address.city ||
+                  address.town ||
+                  address.village ||
+                  address.county ||
+                  address.state_district ||
+                  "Unknown";
+                const country = address.country || "India";
+
+                setWorkerLocation({
+                  latitude,
+                  longitude,
+                  city,
+                  country
+                });
+
+                console.log(`GPS Location: ${city}, ${country} (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`);
+              }
+            } catch (error) {
+              console.error("Reverse geocoding failed:", error);
+              // Fallback: use coordinates with manual city or Unknown
+              setWorkerLocation({
+                latitude,
+                longitude,
+                city: manualCity || "Unknown",
+                country: "India"
+              });
+            }
           },
-          (error) => {
-            console.error("Unable to fetch GPS location:", error);
-            // Even if GPS fails, we still have registered location
-            if (!manualCity && !workerLocation.city) {
+          async (error) => {
+            console.warn("GPS location unavailable:", error.message);
+
+            // Fallback to IP-based geolocation if GPS fails
+            try {
+              const ipApiResponse = await fetch('https://ipapi.co/json/');
+              if (ipApiResponse.ok) {
+                const ipData = await ipApiResponse.json();
+
+                setWorkerLocation({
+                  latitude: ipData.latitude || null,
+                  longitude: ipData.longitude || null,
+                  city: manualCity || ipData.city || "Unknown",
+                  country: ipData.country_name || "India"
+                });
+
+                console.log(`IP-based Location (GPS unavailable): ${ipData.city}, ${ipData.country_name}`);
+              }
+            } catch (ipError) {
+              console.error("IP-based geolocation also failed:", ipError);
+              // Final fallback
               setWorkerLocation(prev => ({
                 ...prev,
-                city: "Unknown",
+                city: manualCity || "Unknown",
                 country: "India"
               }));
             }
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0
           }
         );
       } else {
@@ -288,14 +354,14 @@ export default function WorkerDashboard() {
   const saveLocationPreference = async (city) => {
     if (!user) return;
     try {
-      const res = await fetch(`http://localhost:5000/api/workers/${user.id}`, {
+      const res = await fetch(`${API_BASE_URL}/api/workers/${user.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ location: city })
       });
-      
+
       if (!res.ok) throw new Error("Failed to save location");
-      
+
       setManualCity(city);
       setWorkerLocation(prev => ({
         ...prev,
@@ -325,19 +391,19 @@ export default function WorkerDashboard() {
           }
         }
       );
-      
+
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      
+
       const data = await response.json();
-      
+
       // Extract city and country from Nominatim response
       // Try to get the smallest locality first (village > town > city)
       const address = data.address || {};
       const city = address.village || address.town || address.city || address.county || "Unknown";
       const country = address.country || "Unknown";
-      
+
       return { city, country };
     } catch (error) {
       console.error("Error fetching city and country:", error);
@@ -409,7 +475,7 @@ export default function WorkerDashboard() {
   const handleAcceptJob = async (jobId) => {
     if (!user) return;
     try {
-      const res = await fetch(`http://localhost:5000/api/problems/${jobId}/accept`, {
+      const res = await fetch(`${API_BASE_URL}/api/problems/${jobId}/accept`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ workerId: user._id || user.id }) // Send worker ID
@@ -942,7 +1008,7 @@ function FindWorkSection({ workerCategory, onAccept }) {
         // Fetch open problems. 
         // We can filter by category if we know the worker's category.
         // For now, fetching all open problems or filtering by 'General' if undefined.
-        let url = "http://localhost:5000/api/problems/open";
+        let url = `${API_BASE_URL}/api/problems/open`;
         if (workerCategory) {
           url += `?category=${workerCategory}`;
         }
@@ -1016,7 +1082,7 @@ function ShiftStartModal({ onStart, location = {} }) {
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
   };
-  
+
   // Get current time in local timezone
   const getCurrentTimeString = () => {
     const date = new Date();
@@ -1024,7 +1090,7 @@ function ShiftStartModal({ onStart, location = {} }) {
     const minutes = String(date.getMinutes()).padStart(2, '0');
     return `${hours}:${minutes}`;
   };
-  
+
   const [date, setDate] = useState(getTodayDateString());
   const [time, setTime] = useState(getCurrentTimeString());
   const [locationInput, setLocationInput] = useState(location && location.city ? location.city : "");
@@ -1272,15 +1338,15 @@ function FraudReportModal({ onClose, onSubmit }) {
 function LocationSettingsModal({ currentCity, onClose, onSave }) {
   const [city, setCity] = useState(currentCity);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  
+
   // Common punjab cities and towns
   const punjabLocations = [
-    "Jansla", "Rupnagar", "Mohali", "Chandigarh", "Patiala", "Ludhiana", 
+    "Jansla", "Rupnagar", "Mohali", "Chandigarh", "Patiala", "Ludhiana",
     "Amritsar", "Jalandhar", "Bathinda", "Hoshiarpur", "Nawanshahr",
     "Sangrur", "Moga", "Muktsar", "Ferozepur", "Kapurthala", "Barnala"
   ];
-  
-  const filtered = punjabLocations.filter(loc => 
+
+  const filtered = punjabLocations.filter(loc =>
     loc.toLowerCase().includes(city.toLowerCase())
   );
 
@@ -1307,7 +1373,7 @@ function LocationSettingsModal({ currentCity, onClose, onSave }) {
                 placeholder="e.g., Jansla, Rupnagar..."
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 outline-none"
               />
-              
+
               {/* Suggestions dropdown */}
               {showSuggestions && filtered.length > 0 && (
                 <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-300 rounded-lg shadow-lg z-50 max-h-40 overflow-y-auto">

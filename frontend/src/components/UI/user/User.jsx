@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { FaMicrophone, FaCamera, FaStar, FaMapMarkerAlt } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../../context/AuthContext";
+import API_BASE_URL from "../../../config/api";
 
 function User() {
   const { user } = useAuth();
@@ -74,28 +75,28 @@ function User() {
       try {
         // 1. Create Problem in Backend (Triggers Socket Broadcast)
         if (user) {
-            try {
-                await fetch("http://localhost:5000/api/problems/create", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        title: problem.substring(0, 50) + "...", // Short title
-                        description: problem,
-                        category: skill || "General",
-                        createdBy: user.id || user._id, // Assuming user object has ID
-                        location: { city: "Unknown" } // Placeholder
-                    })
-                });
-            } catch (err) {
-                console.error("Failed to broadcast problem:", err);
-                // Continue anyway to show list
-            }
+          try {
+            await fetch(`${API_BASE_URL}/api/problems/create`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                title: problem.substring(0, 50) + "...", // Short title
+                description: problem,
+                category: skill || "General",
+                createdBy: user.id || user._id, // Assuming user object has ID
+                location: { city: "Unknown" } // Placeholder
+              })
+            });
+          } catch (err) {
+            console.error("Failed to broadcast problem:", err);
+            // Continue anyway to show list
+          }
         }
 
         // 2. Fetch workers from database
-        let url = "http://localhost:5000/api/workers/all";
+        let url = `${API_BASE_URL}/api/workers/all`;
         if (skill) {
-          url = `http://localhost:5000/api/workers/type/${skill}`;
+          url = `${API_BASE_URL}/api/workers/type/${skill}`;
         }
 
         const response = await fetch(url);
