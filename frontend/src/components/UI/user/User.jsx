@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { FaMicrophone, FaCamera, FaStar, FaMapMarkerAlt, FaQuestionCircle, FaTimes, FaPhone, FaEnvelope, FaComments } from "react-icons/fa";
+import { FaMicrophone, FaCamera, FaStar, FaMapMarkerAlt, FaQuestionCircle, FaTimes, FaPhone, FaEnvelope, FaComments, FaUser, FaClipboardList, FaCreditCard, FaWallet, FaCheckCircle, FaExclamationTriangle, FaArrowLeft } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../../context/AuthContext";
 import API_BASE_URL from "../../../config/api";
@@ -492,422 +492,594 @@ function User() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] dark:bg-[#0b1220] flex flex-col items-center px-6 md:px-16">
-      {/* Step 1: Problem Description */}
-      {step === 1 && (
-        <div className="w-full max-w-5xl min-h-[72vh] bg-white p-8 rounded-lg shadow-lg flex flex-col">
-          <h2 className="text-3xl font-bold text-[#0b2545] mb-6">
-            Describe Your Problem
-          </h2>
-          <textarea
-            placeholder="Describe your problem (e.g., AC not cooling, tap leaking...)"
-            value={problem}
-            onChange={(e) => setProblem(e.target.value)}
-            className="w-full h-56 md:h-72 px-4 py-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#0b2545] mb-4 resize-none"
-          />
-          <div className="flex gap-4">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={async () => {
-                  const desiredVideo = !isCameraOn;
-                  const desiredAudio = isMicOn;
-                  await startMedia({ video: desiredVideo, audio: desiredAudio });
-                }}
-                className={`p-3 rounded-full ${isCameraOn ? "bg-green-200" : "bg-gray-200 hover:bg-gray-300"}`}
-                title={isCameraOn ? "Turn off camera" : "Turn on camera"}
-              >
-                <FaCamera className="text-[#0b2545]" />
-              </button>
-
-              <button
-                onClick={async () => {
-                  const desiredAudio = !isMicOn;
-                  const desiredVideo = isCameraOn;
-                  if (desiredAudio) {
-                    // request microphone and start transcription + recording
-                    await startMedia({ video: desiredVideo, audio: true });
-                    startTranscription();
-                    startRecording();
-                    setIsMicOn(true);
-                  } else {
-                    // stop transcription, recording and audio only
-                    stopTranscription();
-                    stopRecording();
-                    stopAudioTracks();
-                  }
-                }}
-                className={`p-3 rounded-full ${isTranscribing ? "bg-red-200 animate-pulse" : isMicOn ? "bg-green-200" : "bg-gray-200 hover:bg-gray-300"}`}
-                title={isMicOn ? "Turn off mic" : "Turn on mic"}
-              >
-                <FaMicrophone className="text-[#0b2545]" />
-              </button>
-            </div>
-          </div>
-          {/* Video preview */}
-          {isCameraOn && (
-            <div className="mt-4">
-              <video ref={videoRef} className="w-full h-56 md:h-64 object-cover rounded-md border border-gray-300 bg-gray-900" autoPlay muted />
-              <div className="flex items-center justify-between mt-3">
-                <div className="text-sm text-gray-500">Camera is on — preview shown above</div>
-                <button
-                  onClick={capturePhoto}
-                  disabled={isAnalyzingImage}
-                  className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-semibold flex items-center gap-2"
-                >
-                  {isAnalyzingImage ? (
-                    <>
-                      <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      Analyzing...
-                    </>
-                  ) : (
-                    <>
-                      <FaCamera />
-                      Capture Photo
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Captured image preview */}
-          {capturedImage && (
-            <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-md">
-              <div className="flex items-start gap-4">
-                <img src={capturedImage} alt="Captured" className="w-32 h-32 object-cover rounded-md border border-gray-300" />
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-green-600 font-semibold">✓ Photo Captured</span>
-                    <button
-                      onClick={() => setCapturedImage(null)}
-                      className="text-sm text-red-600 hover:text-red-800 underline"
-                    >
-                      Remove
-                    </button>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 py-8 px-4 md:px-8">
+      <div className="max-w-6xl mx-auto">
+        {/* Step Progress Indicator */}
+        <div className="mb-8">
+          <div className="flex items-center justify-center gap-2 md:gap-4">
+            {[
+              { num: 1, label: "Describe Problem" },
+              { num: 2, label: "Select Worker" },
+              { num: 3, label: "Confirm Booking" },
+              { num: 4, label: "Get OTP" }
+            ].map((s, idx) => (
+              <div key={s.num} className="flex items-center">
+                <div className="flex flex-col items-center">
+                  <div className={`w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center font-bold text-sm md:text-base transition-all duration-300 ${step === s.num
+                    ? 'bg-blue-600 text-white shadow-lg scale-110'
+                    : step > s.num
+                      ? 'bg-green-500 text-white'
+                      : 'bg-gray-200 text-gray-500'
+                    }`}>
+                    {step > s.num ? '✓' : s.num}
                   </div>
-                  <p className="text-sm text-gray-600">
-                    {isAnalyzingImage
-                      ? "AI is analyzing your image to detect the problem..."
-                      : "Image has been analyzed and added to your problem description."}
-                  </p>
+                  <span className={`text-xs md:text-sm mt-2 font-medium hidden md:block ${step === s.num ? 'text-blue-600' : 'text-gray-500'
+                    }`}>
+                    {s.label}
+                  </span>
                 </div>
-              </div>
-            </div>
-          )}
-          {/* Live transcription badge & interim text */}
-          {isTranscribing && (
-            <div className="mt-3 flex items-center gap-2">
-              <span className="inline-block w-3 h-3 bg-red-600 rounded-full animate-pulse" />
-              <span className="text-sm text-red-600 font-medium">Recording...</span>
-              {isUploading && <span className="ml-3 text-sm text-gray-600">Translating...</span>}
-              {detectedLanguage && !isUploading && (
-                <span className="ml-3 text-sm text-gray-700">Detected: <strong>{detectedLanguage}</strong></span>
-              )}
-            </div>
-          )}
-          {interimTranscript && (
-            <div className="mt-2 text-sm text-gray-500 italic">Listening: {interimTranscript}</div>
-          )}
-          <button
-            onClick={handleProblemSubmit}
-            className="bg-[#0b2545] text-white px-6 py-3 rounded-md hover:bg-[#14365b] font-semibold mt-4"
-          >
-            Next
-          </button>
-        </div>
-      )}
-
-      {/* Step 2: Worker Suggestions */}
-      {step === 2 && (
-        <div className="w-full max-w-7xl">
-          <h2 className="text-3xl font-bold text-[#0b2545] mb-6">
-            Available Workers
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {workerSuggestions.map((worker) => (
-              <div
-                key={worker.id}
-                className="bg-white p-6 rounded-lg shadow-md hover:shadow-lg transition"
-              >
-                <div className="flex items-center gap-4 mb-4">
-                  <div className="w-16 h-16 bg-gray-200 rounded-full"></div>
-                  <div>
-                    <h3 className="text-xl font-semibold text-[#0b2545]">
-                      {worker.name}
-                    </h3>
-                    <p className="text-gray-600">{worker.skill}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 text-yellow-500 mb-4">
-                  <FaStar />
-                  <span>{worker.rating}</span>
-                </div>
-                <div className="text-gray-600 mb-4">
-                  <FaMapMarkerAlt className="inline-block mr-2" />
-                  {worker.distance}
-                </div>
-                <div className="text-gray-600 mb-4">{worker.price}</div>
-                <div className="flex gap-4">
-                  <button
-                    onClick={() => handleWorkerAccept(worker)}
-                    className="bg-[#0b2545] text-white px-4 py-2 rounded-md hover:bg-[#14365b] font-semibold"
-                  >
-                    Accept
-                  </button>
-                  <button className="bg-gray-200 text-[#0b2545] px-4 py-2 rounded-md hover:bg-gray-300 font-semibold">
-                    Reject
-                  </button>
-                </div>
+                {idx < 3 && (
+                  <div className={`w-12 md:w-24 h-1 mx-2 transition-all duration-300 ${step > s.num ? 'bg-green-500' : 'bg-gray-200'
+                    }`} />
+                )}
               </div>
             ))}
           </div>
-          {/* If this was a plumber request, show bottom plumber card with cycle/next/accept */}
-          {isPlumberRequest(problem) && workerSuggestions.length > 0 && (
-            <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 w-full max-w-3xl bg-white p-4 rounded-lg shadow-2xl border">
-              {(() => {
-                const w = workerSuggestions[currentIndex % workerSuggestions.length];
-                return (
-                  <div className="flex items-center gap-4">
-                    <div className="w-20 h-20 bg-gray-200 rounded-md shrink-0" />
-                    <div className="flex-1">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h3 className="text-lg font-semibold text-[#0b2545]">{w.name}</h3>
-                          <p className="text-sm text-gray-600">{w.skill} • {w.location}</p>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-yellow-500 flex items-center gap-1"><FaStar /> <span>{w.rating}</span></div>
-                          <div className="text-gray-600 text-sm">{w.price}</div>
-                        </div>
-                      </div>
-                      <div className="mt-2 text-sm text-gray-600">Contact: <strong>{w.contact}</strong></div>
-                      <div className="mt-3 flex gap-3">
-                        <button onClick={() => handleAcceptAndPay(w)} className="bg-green-600 text-white px-4 py-2 rounded-md font-semibold">Accept</button>
-                        <button onClick={handleNextWorker} className="bg-gray-200 text-[#0b2545] px-4 py-2 rounded-md font-semibold">Next</button>
-                        <button onClick={() => setWorkerSuggestions(prev => prev.filter(x => x.id !== w.id))} className="bg-red-500 text-white px-4 py-2 rounded-md font-semibold">Reject</button>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })()}
+        </div>
+
+        {/* Step 1: Problem Description */}
+        {step === 1 && (
+          <div className="bg-white rounded-2xl shadow-xl p-6 md:p-10 border border-gray-100">
+            <div className="mb-6">
+              <h2 className="text-3xl md:text-4xl font-bold text-gray-800 mb-2">
+                What can we help you with?
+              </h2>
+              <p className="text-gray-600">Describe your problem in detail or use voice/camera</p>
             </div>
-          )}
-        </div>
-      )}
 
-      {/* Step 3: Confirmation */}
-      {step === 3 && selectedWorker && (
-        <div className="w-full max-w-3xl bg-white p-8 rounded-lg shadow-lg">
-          <h2 className="text-3xl font-bold text-[#0b2545] mb-6">
-            Confirm Your Booking
-          </h2>
-          <p className="text-gray-600 mb-4">
-            Worker: <strong>{selectedWorker.name}</strong>
-          </p>
-          <p className="text-gray-600 mb-4">
-            Problem: <strong>{problem}</strong>
-          </p>
-          <div className="flex gap-4">
-            <button
-              onClick={() => handlePayment("Pay Now")}
-              className="bg-[#0b2545] text-white px-6 py-3 rounded-md hover:bg-[#14365b] font-semibold"
-            >
-              Pay Now
-            </button>
-            <button
-              onClick={() => handlePayment("Pay Later")}
-              className="bg-gray-200 text-[#0b2545] px-6 py-3 rounded-md hover:bg-gray-300 font-semibold"
-            >
-              Pay Later
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Step 4: OTP Generation */}
-      {step === 4 && (
-        <div className="w-full max-w-3xl bg-white p-8 rounded-lg shadow-lg text-center">
-          <h2 className="text-3xl font-bold text-[#0b2545] mb-6">
-            Booking Confirmed!
-          </h2>
-          <p className="text-gray-600 mb-4">
-            Your OTP: <strong>{otp}</strong>
-          </p>
-          <p className="text-gray-600">
-            Share this OTP with the worker after the work is completed.
-          </p>
-        </div>
-      )}
-
-      {/* Step 5: History */}
-      {step === 5 && (
-        <div className="w-full max-w-7xl">
-          <h2 className="text-3xl font-bold text-[#0b2545] mb-6">History</h2>
-          <div className="grid grid-cols-1 gap-6">
-            {history
-              .filter((item) => item.status === "Completed")
-              .map((item, index) => (
-                <div
-                  key={index}
-                  className="bg-white p-6 rounded-lg shadow-md hover:shadow-lg transition"
-                >
-                  <p className="text-gray-600 mb-2">
-                    Problem: <strong>{item.problem}</strong>
-                  </p>
-                  <p className="text-gray-600 mb-2">
-                    Worker: <strong>{item.worker.name}</strong>
-                  </p>
-                  <p className="text-gray-600 mb-2">
-                    Status: <strong className="text-green-500">Completed</strong>
-                  </p>
-                </div>
-              ))}
-          </div>
-        </div>
-      )}
-
-      {/* Step 6: Pending */}
-      {step === 6 && (
-        <div className="w-full max-w-7xl">
-          <h2 className="text-3xl font-bold text-[#0b2545] mb-6">Pending</h2>
-          <div className="grid grid-cols-1 gap-6">
-            {history
-              .filter((item) => item.status === "Pending")
-              .map((item, index) => (
-                <div
-                  key={index}
-                  className="bg-white p-6 rounded-lg shadow-md hover:shadow-lg transition"
-                >
-                  <p className="text-gray-600 mb-2">
-                    Problem: <strong>{item.problem}</strong>
-                  </p>
-                  <p className="text-gray-600 mb-2">
-                    Worker: <strong>{item.worker.name}</strong>
-                  </p>
-                  <p className="text-gray-600 mb-2">
-                    OTP: <strong>{item.otp}</strong>
-                  </p>
-                  <button
-                    onClick={() => cancelWork(item)}
-                    className="bg-red-500 text-white px-4 py-2 rounded-md hover:bg-red-600 font-semibold"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              ))}
-          </div>
-        </div>
-      )}
-
-      {/* Floating Help Button */}
-      <button
-        onClick={() => setHelpModalOpen(true)}
-        className="fixed bottom-6 right-6 w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-full shadow-2xl hover:shadow-blue-500/50 hover:scale-110 transition-all duration-300 flex items-center justify-center z-50 group"
-        title="Help & Support"
-      >
-        <FaQuestionCircle className="text-2xl group-hover:rotate-12 transition-transform" />
-      </button>
-
-      {/* Help Modal - Chat Interface */}
-      {helpModalOpen && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 px-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full h-[600px] flex flex-col transform transition-all">
-            {/* Header */}
-            <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-4 rounded-t-2xl relative flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
-                  <FaComments className="text-xl" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-bold">EzyWork Support</h2>
-                  <p className="text-xs text-blue-100">Online • Reply in seconds</p>
+            <div className="space-y-6">
+              {/* Textarea with character counter */}
+              <div className="relative">
+                <textarea
+                  placeholder="Example: My AC is not cooling properly, making strange noises..."
+                  value={problem}
+                  onChange={(e) => setProblem(e.target.value)}
+                  className="w-full h-48 px-6 py-4 border-2 border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none text-gray-700 placeholder-gray-400 transition-all"
+                />
+                <div className="absolute bottom-4 right-4 text-sm text-gray-400">
+                  {problem.length} characters
                 </div>
               </div>
-              <button
-                onClick={() => {
-                  setHelpModalOpen(false);
-                  resetChat();
-                }}
-                className="text-white/80 hover:text-white hover:rotate-90 transition-all duration-300"
-              >
-                <FaTimes className="text-xl" />
-              </button>
-            </div>
 
-            {/* Chat Messages Area */}
-            <div className="flex-1 overflow-y-auto p-4 bg-gray-50 space-y-3">
-              {/* Welcome Message */}
-              {chatMessages.length === 0 && (
-                <div className="flex gap-2 items-start">
-                  <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0">
-                    <FaComments className="text-white text-sm" />
-                  </div>
-                  <div className="bg-white rounded-2xl rounded-tl-none p-3 shadow-sm max-w-[80%]">
-                    <p className="text-sm text-gray-800">
-                      👋 Hi! I'm your EzyWork assistant. How can I help you today?
-                    </p>
-                    <p className="text-xs text-gray-400 mt-1">Just now</p>
+              {/* Media Controls */}
+              <div className="flex flex-wrap gap-3">
+                <button
+                  onClick={async () => {
+                    const desiredVideo = !isCameraOn;
+                    const desiredAudio = isMicOn;
+                    await startMedia({ video: desiredVideo, audio: desiredAudio });
+                  }}
+                  className={`flex items-center gap-2 px-6 py-3 rounded-xl font-medium transition-all ${isCameraOn
+                    ? 'bg-green-500 text-white shadow-lg'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                >
+                  <FaCamera className="text-lg" />
+                  <span>{isCameraOn ? 'Camera On' : 'Use Camera'}</span>
+                </button>
+
+                <button
+                  onClick={async () => {
+                    const desiredAudio = !isMicOn;
+                    const desiredVideo = isCameraOn;
+                    if (desiredAudio) {
+                      await startMedia({ video: desiredVideo, audio: true });
+                      startTranscription();
+                      startRecording();
+                      setIsMicOn(true);
+                    } else {
+                      stopTranscription();
+                      stopRecording();
+                      stopAudioTracks();
+                    }
+                  }}
+                  className={`flex items-center gap-2 px-6 py-3 rounded-xl font-medium transition-all ${isTranscribing
+                    ? 'bg-red-500 text-white shadow-lg animate-pulse'
+                    : isMicOn
+                      ? 'bg-green-500 text-white shadow-lg'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                >
+                  <FaMicrophone className="text-lg" />
+                  <span>{isTranscribing ? 'Recording...' : isMicOn ? 'Mic On' : 'Use Voice'}</span>
+                </button>
+              </div>
+
+              {/* Video Preview */}
+              {isCameraOn && (
+                <div className="bg-gray-900 rounded-xl overflow-hidden">
+                  <video ref={videoRef} className="w-full h-64 object-cover" autoPlay muted />
+                  <div className="bg-gray-800 p-4 flex items-center justify-between">
+                    <span className="text-white text-sm">Camera Preview</span>
+                    <button
+                      onClick={capturePhoto}
+                      disabled={isAnalyzingImage}
+                      className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg font-medium disabled:bg-gray-600 transition-all flex items-center gap-2"
+                    >
+                      {isAnalyzingImage ? (
+                        <>
+                          <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          Analyzing...
+                        </>
+                      ) : (
+                        <>
+                          <FaCamera />
+                          📸 Capture Photo
+                        </>
+                      )}
+                    </button>
                   </div>
                 </div>
               )}
 
-              {/* Chat Messages */}
-              {chatMessages.map((msg, index) => (
-                <div key={index} className={`flex gap-2 items-start ${msg.type === 'user' ? 'flex-row-reverse' : ''}`}>
-                  {msg.type === 'bot' && (
+              {/* Captured Image */}
+              {capturedImage && (
+                <div className="bg-green-50 border-2 border-green-200 rounded-xl p-4">
+                  <div className="flex items-start gap-4">
+                    <img src={capturedImage} alt="Captured" className="w-24 h-24 object-cover rounded-lg" />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-green-600 font-semibold">✓ Photo Captured</span>
+                        <button
+                          onClick={() => setCapturedImage(null)}
+                          className="text-sm text-red-600 hover:text-red-800 underline ml-auto"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                      <p className="text-sm text-gray-600">
+                        {isAnalyzingImage ? 'AI is analyzing your image...' : 'Image analyzed and added to description'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Transcription Status */}
+              {isTranscribing && (
+                <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="inline-block w-3 h-3 bg-red-600 rounded-full animate-pulse" />
+                    <span className="text-red-600 font-semibold">Recording in progress...</span>
+                  </div>
+                  {interimTranscript && (
+                    <p className="text-sm text-gray-600 italic">"{interimTranscript}"</p>
+                  )}
+                </div>
+              )}
+
+              {/* Submit Button */}
+              <button
+                onClick={handleProblemSubmit}
+                disabled={!problem.trim()}
+                className="w-full bg-gradient-to-r from-blue-600 to-blue-700 text-white px-8 py-4 rounded-xl hover:from-blue-700 hover:to-blue-800 font-semibold text-lg shadow-lg hover:shadow-xl transition-all disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed"
+              >
+                Find Workers →
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 2: Worker Suggestions */}
+        {step === 2 && (
+          <div className="bg-white rounded-xl shadow-lg p-8 border border-gray-200">
+            {/* Back Button */}
+            <button
+              onClick={() => setStep(1)}
+              className="flex items-center gap-2 text-gray-600 hover:text-gray-800 mb-4 transition-colors"
+            >
+              <FaArrowLeft />
+              <span className="font-medium">Back to Problem Description</span>
+            </button>
+
+            <div className="mb-6">
+              <h2 className="text-3xl font-bold text-gray-800 mb-2">
+                Available Workers
+              </h2>
+              <p className="text-gray-600">
+                {detectedSkill && <span className="inline-block bg-blue-100 text-blue-700 px-3 py-1 rounded-lg text-sm font-medium mr-2">
+                  {detectedSkill}
+                </span>}
+                {workerSuggestions.length} workers found near you
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {workerSuggestions.map((worker) => (
+                <div
+                  key={worker.id}
+                  className="bg-white border border-gray-200 rounded-lg p-5 hover:border-blue-500 hover:shadow-md transition-all"
+                >
+                  <div className="flex items-center gap-3 mb-4 pb-4 border-b border-gray-100">
+                    <div className="w-14 h-14 bg-blue-600 rounded-full flex items-center justify-center text-white text-xl font-semibold">
+                      {worker.name.charAt(0)}
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-lg font-semibold text-gray-800">
+                        {worker.name}
+                      </h3>
+                      <p className="text-gray-600 text-sm">{worker.skill}</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2.5 mb-4">
+                    <div className="flex items-center gap-2 text-sm">
+                      <FaStar className="text-yellow-500 text-base" />
+                      <span className="font-medium text-gray-700">{worker.rating}</span>
+                      <span className="text-gray-500">rating</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm">
+                      <FaMapMarkerAlt className="text-gray-500 text-base" />
+                      <span className="text-gray-700">{worker.distance}</span>
+                    </div>
+                    <div className="bg-gray-50 border border-gray-200 rounded-md px-3 py-2">
+                      <span className="text-gray-800 font-semibold text-sm">{worker.price}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleWorkerAccept(worker)}
+                      className="flex-1 bg-blue-600 text-white px-4 py-2.5 rounded-lg hover:bg-blue-700 font-medium text-sm transition-all"
+                    >
+                      Select
+                    </button>
+                    <button className="px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium text-sm transition-all">
+                      Skip
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {/* If this was a plumber request, show bottom plumber card with cycle/next/accept */}
+            {isPlumberRequest(problem) && workerSuggestions.length > 0 && (
+              <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 w-full max-w-3xl bg-white p-4 rounded-lg shadow-2xl border">
+                {(() => {
+                  const w = workerSuggestions[currentIndex % workerSuggestions.length];
+                  return (
+                    <div className="flex items-center gap-4">
+                      <div className="w-20 h-20 bg-gray-200 rounded-md shrink-0" />
+                      <div className="flex-1">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <h3 className="text-lg font-semibold text-[#0b2545]">{w.name}</h3>
+                            <p className="text-sm text-gray-600">{w.skill} • {w.location}</p>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-yellow-500 flex items-center gap-1"><FaStar /> <span>{w.rating}</span></div>
+                            <div className="text-gray-600 text-sm">{w.price}</div>
+                          </div>
+                        </div>
+                        <div className="mt-2 text-sm text-gray-600">Contact: <strong>{w.contact}</strong></div>
+                        <div className="mt-3 flex gap-3">
+                          <button onClick={() => handleAcceptAndPay(w)} className="bg-green-600 text-white px-4 py-2 rounded-md font-semibold">Accept</button>
+                          <button onClick={handleNextWorker} className="bg-gray-200 text-[#0b2545] px-4 py-2 rounded-md font-semibold">Next</button>
+                          <button onClick={() => setWorkerSuggestions(prev => prev.filter(x => x.id !== w.id))} className="bg-red-500 text-white px-4 py-2 rounded-md font-semibold">Reject</button>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })()}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Step 3: Confirmation */}
+        {step === 3 && selectedWorker && (
+          <div className="bg-white rounded-xl shadow-lg p-8 border border-gray-200 max-w-2xl mx-auto">
+            {/* Back Button */}
+            <button
+              onClick={() => setStep(2)}
+              className="flex items-center gap-2 text-gray-600 hover:text-gray-800 mb-4 transition-colors"
+            >
+              <FaArrowLeft />
+              <span className="font-medium">Back to Worker Selection</span>
+            </button>
+
+            <div className="mb-6">
+              <h2 className="text-3xl font-bold text-gray-800 mb-2">
+                Confirm Your Booking
+              </h2>
+              <p className="text-gray-600">Review the details before proceeding</p>
+            </div>
+
+            <div className="space-y-4 mb-8">
+              {/* Worker Details Box */}
+              <div className="border border-gray-200 rounded-lg p-5">
+                <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-100">
+                  <FaUser className="text-blue-600 text-lg" />
+                  <span className="text-gray-800 font-semibold text-lg">Worker Details</span>
+                </div>
+                <div className="space-y-2.5">
+                  <div className="flex items-start">
+                    <span className="text-gray-600 w-24 text-sm">Name:</span>
+                    <span className="text-gray-800 font-medium">{selectedWorker.name}</span>
+                  </div>
+                  <div className="flex items-start">
+                    <span className="text-gray-600 w-24 text-sm">Skill:</span>
+                    <span className="text-gray-800 font-medium">{selectedWorker.skill}</span>
+                  </div>
+                  <div className="flex items-start">
+                    <span className="text-gray-600 w-24 text-sm">Rating:</span>
+                    <span className="text-gray-800 font-medium flex items-center gap-1">
+                      <FaStar className="text-yellow-500 text-sm" /> {selectedWorker.rating}
+                    </span>
+                  </div>
+                  <div className="flex items-start">
+                    <span className="text-gray-600 w-24 text-sm">Price:</span>
+                    <span className="text-gray-800 font-medium">{selectedWorker.price}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Problem Description Box */}
+              <div className="border border-gray-200 rounded-lg p-5">
+                <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-100">
+                  <FaClipboardList className="text-blue-600 text-lg" />
+                  <span className="text-gray-800 font-semibold text-lg">Problem Description</span>
+                </div>
+                <p className="text-gray-700 leading-relaxed">{problem}</p>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button
+                onClick={() => handlePayment("Pay Now")}
+                className="flex-1 bg-green-600 text-white px-6 py-3.5 rounded-lg hover:bg-green-700 font-semibold flex items-center justify-center gap-2 transition-all"
+              >
+                <FaCreditCard className="text-lg" />
+                Pay Now
+              </button>
+              <button
+                onClick={() => handlePayment("Pay Later")}
+                className="flex-1 bg-gray-600 text-white px-6 py-3.5 rounded-lg hover:bg-gray-700 font-semibold flex items-center justify-center gap-2 transition-all"
+              >
+                <FaWallet className="text-lg" />
+                Pay Later
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 4: OTP Generation */}
+        {step === 4 && (
+          <div className="bg-white rounded-xl shadow-lg p-8 border border-gray-200 max-w-xl mx-auto">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-green-600 rounded-full flex items-center justify-center mx-auto mb-5">
+                <FaCheckCircle className="text-white text-3xl" />
+              </div>
+
+              <h2 className="text-3xl font-bold text-gray-800 mb-2">
+                Booking Confirmed!
+              </h2>
+              <p className="text-gray-600 mb-4">Your worker will arrive shortly</p>
+              <p className="text-sm text-gray-500 mb-8">Note: You cannot go back after booking is confirmed</p>
+
+              {/* OTP Box */}
+              <div className="border-2 border-gray-200 rounded-lg p-6 mb-6">
+                <p className="text-gray-700 font-medium mb-4 text-sm uppercase tracking-wide">Your One-Time Password</p>
+                <div className="bg-gray-50 rounded-lg p-6 mb-5">
+                  <div className="text-5xl font-bold text-blue-600 tracking-widest font-mono">
+                    {otp}
+                  </div>
+                </div>
+
+                {/* Warning Box */}
+                <div className="flex items-start gap-3 bg-yellow-50 border border-yellow-300 rounded-lg p-4 text-left">
+                  <FaExclamationTriangle className="text-yellow-600 text-xl mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800 mb-1">Important Security Notice</p>
+                    <p className="text-sm text-gray-700">
+                      Share this OTP with the worker ONLY after the work is completed to your satisfaction.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <button
+                  onClick={() => {
+                    setStep(1);
+                    setProblem("");
+                    setSelectedWorker(null);
+                    setOtp("");
+                  }}
+                  className="w-full bg-blue-600 text-white px-6 py-3.5 rounded-lg hover:bg-blue-700 font-semibold transition-all"
+                >
+                  Book Another Worker
+                </button>
+                <button
+                  onClick={() => setStep(6)}
+                  className="w-full bg-gray-100 text-gray-700 px-6 py-3 rounded-lg hover:bg-gray-200 font-medium transition-all"
+                >
+                  View Pending Bookings
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Step 5: History */}
+        {step === 5 && (
+          <div className="w-full max-w-7xl">
+            <h2 className="text-3xl font-bold text-[#0b2545] mb-6">History</h2>
+            <div className="grid grid-cols-1 gap-6">
+              {history
+                .filter((item) => item.status === "Completed")
+                .map((item, index) => (
+                  <div
+                    key={index}
+                    className="bg-white p-6 rounded-lg shadow-md hover:shadow-lg transition"
+                  >
+                    <p className="text-gray-600 mb-2">
+                      Problem: <strong>{item.problem}</strong>
+                    </p>
+                    <p className="text-gray-600 mb-2">
+                      Worker: <strong>{item.worker.name}</strong>
+                    </p>
+                    <p className="text-gray-600 mb-2">
+                      Status: <strong className="text-green-500">Completed</strong>
+                    </p>
+                  </div>
+                ))}
+            </div>
+          </div>
+        )}
+
+        {/* Step 6: Pending */}
+        {step === 6 && (
+          <div className="w-full max-w-7xl">
+            <h2 className="text-3xl font-bold text-[#0b2545] mb-6">Pending</h2>
+            <div className="grid grid-cols-1 gap-6">
+              {history
+                .filter((item) => item.status === "Pending")
+                .map((item, index) => (
+                  <div
+                    key={index}
+                    className="bg-white p-6 rounded-lg shadow-md hover:shadow-lg transition"
+                  >
+                    <p className="text-gray-600 mb-2">
+                      Problem: <strong>{item.problem}</strong>
+                    </p>
+                    <p className="text-gray-600 mb-2">
+                      Worker: <strong>{item.worker.name}</strong>
+                    </p>
+                    <p className="text-gray-600 mb-2">
+                      OTP: <strong>{item.otp}</strong>
+                    </p>
+                    <button
+                      onClick={() => cancelWork(item)}
+                      className="bg-red-500 text-white px-4 py-2 rounded-md hover:bg-red-600 font-semibold"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ))}
+            </div>
+          </div>
+        )}
+
+        {/* Floating Help Button */}
+        <button
+          onClick={() => setHelpModalOpen(true)}
+          className="fixed bottom-6 right-6 w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-full shadow-2xl hover:shadow-blue-500/50 hover:scale-110 transition-all duration-300 flex items-center justify-center z-50 group"
+          title="Help & Support"
+        >
+          <FaQuestionCircle className="text-2xl group-hover:rotate-12 transition-transform" />
+        </button>
+
+        {/* Help Modal - Chat Interface */}
+        {helpModalOpen && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full h-[600px] flex flex-col transform transition-all">
+              {/* Header */}
+              <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-4 rounded-t-2xl relative flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+                    <FaComments className="text-xl" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold">EzyWork Support</h2>
+                    <p className="text-xs text-blue-100">Online • Reply in seconds</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setHelpModalOpen(false);
+                    resetChat();
+                  }}
+                  className="text-white/80 hover:text-white hover:rotate-90 transition-all duration-300"
+                >
+                  <FaTimes className="text-xl" />
+                </button>
+              </div>
+
+              {/* Chat Messages Area */}
+              <div className="flex-1 overflow-y-auto p-4 bg-gray-50 space-y-3">
+                {/* Welcome Message */}
+                {chatMessages.length === 0 && (
+                  <div className="flex gap-2 items-start">
                     <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0">
                       <FaComments className="text-white text-sm" />
                     </div>
-                  )}
-                  <div className={`rounded-2xl p-3 shadow-sm max-w-[80%] ${msg.type === 'user'
+                    <div className="bg-white rounded-2xl rounded-tl-none p-3 shadow-sm max-w-[80%]">
+                      <p className="text-sm text-gray-800">
+                        👋 Hi! I'm your EzyWork assistant. How can I help you today?
+                      </p>
+                      <p className="text-xs text-gray-400 mt-1">Just now</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Chat Messages */}
+                {chatMessages.map((msg, index) => (
+                  <div key={index} className={`flex gap-2 items-start ${msg.type === 'user' ? 'flex-row-reverse' : ''}`}>
+                    {msg.type === 'bot' && (
+                      <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0">
+                        <FaComments className="text-white text-sm" />
+                      </div>
+                    )}
+                    <div className={`rounded-2xl p-3 shadow-sm max-w-[80%] ${msg.type === 'user'
                       ? 'bg-blue-500 text-white rounded-tr-none'
                       : 'bg-white text-gray-800 rounded-tl-none'
-                    }`}>
-                    <p className="text-sm">{msg.text}</p>
-                    <p className={`text-xs mt-1 ${msg.type === 'user' ? 'text-blue-100' : 'text-gray-400'}`}>
-                      {msg.timestamp}
+                      }`}>
+                      <p className="text-sm">{msg.text}</p>
+                      <p className={`text-xs mt-1 ${msg.type === 'user' ? 'text-blue-100' : 'text-gray-400'}`}>
+                        {msg.timestamp}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+
+                <div ref={chatEndRef} />
+              </div>
+
+              {/* Questions Section */}
+              <div className="border-t border-gray-200 p-4 bg-white rounded-b-2xl max-h-[250px] overflow-y-auto">
+                {showQuestions ? (
+                  <div>
+                    <p className="text-xs text-gray-500 mb-3 font-medium">Select a question:</p>
+                    <div className="space-y-2">
+                      {faqData.map((faq, index) => (
+                        <button
+                          key={index}
+                          onClick={() => handleQuestionClick(faq)}
+                          className="w-full text-left px-3 py-2.5 text-sm bg-blue-50 hover:bg-blue-100 text-gray-700 rounded-lg transition-colors border border-blue-100 hover:border-blue-200"
+                        >
+                          💬 {faq.question}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center">
+                    <button
+                      onClick={resetChat}
+                      className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-medium transition-colors"
+                    >
+                      ← Back to Questions
+                    </button>
+                    <p className="text-xs text-gray-500 mt-2">
+                      Need more help? Call us at +91 1800-123-4567
                     </p>
                   </div>
-                </div>
-              ))}
-
-              <div ref={chatEndRef} />
-            </div>
-
-            {/* Questions Section */}
-            <div className="border-t border-gray-200 p-4 bg-white rounded-b-2xl max-h-[250px] overflow-y-auto">
-              {showQuestions ? (
-                <div>
-                  <p className="text-xs text-gray-500 mb-3 font-medium">Select a question:</p>
-                  <div className="space-y-2">
-                    {faqData.map((faq, index) => (
-                      <button
-                        key={index}
-                        onClick={() => handleQuestionClick(faq)}
-                        className="w-full text-left px-3 py-2.5 text-sm bg-blue-50 hover:bg-blue-100 text-gray-700 rounded-lg transition-colors border border-blue-100 hover:border-blue-200"
-                      >
-                        💬 {faq.question}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center">
-                  <button
-                    onClick={resetChat}
-                    className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-medium transition-colors"
-                  >
-                    ← Back to Questions
-                  </button>
-                  <p className="text-xs text-gray-500 mt-2">
-                    Need more help? Call us at +91 1800-123-4567
-                  </p>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
