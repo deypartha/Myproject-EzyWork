@@ -1,7 +1,6 @@
 import CssBaseline from '@mui/material/CssBaseline';
 import Stack from '@mui/material/Stack';
 import AppTheme from '../shared-theme/AppTheme';
-import ColorModeSelect from '../shared-theme/ColorModeSelect';
 import SignInCard from './SignInCard';
 import Content from './Content';
 
@@ -9,7 +8,6 @@ export default function Authentication(props) {
   return (
     <AppTheme {...props}>
       <CssBaseline enableColorScheme />
-      <ColorModeSelect sx={{ position: 'fixed', top: '1rem', right: '1rem' }} />
       <Stack
         direction="column"
         component="main"

@@ -114,14 +114,24 @@ export default function WorkerDashboard() {
   const { user } = useAuth(); // Get user from auth
   const [workerProfile, setWorkerProfile] = useState(null); // Store full worker profile
   const socketRef = useRef(null); // Socket reference
+  const [assignedProblems, setAssignedProblems] = useState([]);
+  const refreshFindWorkRef = useRef(null); // Ref to trigger find work refresh
+  const [refreshTrigger, setRefreshTrigger] = useState(false); // Trigger FindWorkSection refresh
 
   // Initialize Socket
   useEffect(() => {
     socketRef.current = io(API_BASE_URL);
+
+    // Join worker-specific room immediately for personal requests
+    if (user && user.id) {
+      socketRef.current.emit("join-room", `worker-${user.id}`);
+      console.log("Joined worker room:", `worker-${user.id}`);
+    }
+
     return () => {
       socketRef.current.disconnect();
     };
-  }, []);
+  }, [user]);
 
   // Fetch Worker Profile to get Skills and Registered Location
   useEffect(() => {
@@ -148,6 +158,24 @@ export default function WorkerDashboard() {
       };
       fetchWorkerProfile();
     }
+  }, [user]);
+
+  // Fetch assigned problems
+  const fetchAssignedProblems = async () => {
+    if (!user) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/problems/worker/${user.id || user._id}`);
+      if (res.ok) {
+        const problems = await res.json();
+        setAssignedProblems(problems);
+      }
+    } catch (err) {
+      console.error("Failed to fetch assigned problems:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchAssignedProblems();
   }, [user]);
 
   // Handle Online Toggle
@@ -212,6 +240,9 @@ export default function WorkerDashboard() {
       // Play notification sound?
       alert(`New Job Alert: ${problem.title}`);
 
+      // Trigger FindWorkSection refresh by toggling refreshTrigger
+      setRefreshTrigger(prev => !prev);
+
       // Add to history (or a new 'availableJobs' list)
       // Mapping problem model to history model
       const newJob = {
@@ -230,6 +261,23 @@ export default function WorkerDashboard() {
 
     return () => {
       socketRef.current.off("new-problem");
+    };
+  }, []);
+
+  // Listen for Worker Requests
+  useEffect(() => {
+    if (!socketRef.current) return;
+
+    socketRef.current.on("worker-request", (data) => {
+      console.log("Worker Request Received:", data);
+      alert(`New Job Request: ${data.problem.title}`);
+      
+      // Refresh assigned problems to show the request
+      fetchAssignedProblems();
+    });
+
+    return () => {
+      socketRef.current.off("worker-request");
     };
   }, []);
 
@@ -416,8 +464,24 @@ export default function WorkerDashboard() {
     setOtpModal({ open: true, jobId });
   }
 
+  // Handle reject job
+  async function handleRejectJob(problemId) {
+    try {
+      await fetch(`${API_BASE_URL}/api/problems/${problemId}/reject`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workerId: user.id || user._id })
+      });
+      alert("Job rejected successfully");
+      // Optionally, refresh the find work section, but since it's polling, it will update.
+    } catch (err) {
+      console.error("Failed to reject job:", err);
+      alert("Failed to reject job");
+    }
+  }
+
   // Verify OTP and complete job
-  function verifyOtp(jobId, otpValue) {
+  async function verifyOtp(jobId, otpValue) {
     // Validate OTP format
     const otpArray = otpValue.split("");
     const otpValidation = validOtp(otpArray);
@@ -427,11 +491,27 @@ export default function WorkerDashboard() {
       return;
     }
 
-    setHistory((h) =>
-      h.map((j) => (j.id === jobId ? { ...j, status: "otp-verified" } : j))
-    );
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/problems/${jobId}/complete`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ otp: otpValue })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        alert("Job completed successfully! Both you and the customer have been notified.");
+        fetchAssignedProblems();
+      } else {
+        const error = await res.json();
+        alert(error.message || "Failed to complete job");
+      }
+    } catch (err) {
+      console.error("Error completing job:", err);
+      alert("Failed to complete job. Please try again.");
+    }
+
     setOtpModal({ open: false, jobId: null });
-    setPaymentModal({ open: true, jobId });
   }
 
   function handlePayment(jobId, method) {
@@ -484,6 +564,9 @@ export default function WorkerDashboard() {
       if (!res.ok) throw new Error(data.message);
 
       alert("Job Accepted Successfully!");
+
+      // Refresh assigned problems to show in Job Management
+      await fetchAssignedProblems();
 
       // Add to active jobs (history with pending status for now, or accepted)
       const newJob = {
@@ -592,10 +675,10 @@ export default function WorkerDashboard() {
         {/* SECTION RENDER */}
         {activeSection === "job" && (
           <JobSection
-            history={history}
-            onEndJob={handleEndJob}
-            onCollectPayment={(jobId) => setPaymentModal({ open: true, jobId })}
-            setHistory={setHistory}
+            problems={assignedProblems}
+            onAcceptJob={handleAcceptJob}
+            onCompleteJob={(problemId) => setOtpModal({ open: true, jobId: problemId })}
+            fetchAssignedProblems={fetchAssignedProblems}
             workerLocation={workerLocation}
           />
         )}
@@ -616,6 +699,8 @@ export default function WorkerDashboard() {
           <FindWorkSection
             workerCategory={workerProfile?.typeOfWork ? workerProfile.typeOfWork[0] : ""}
             onAccept={handleAcceptJob}
+            onReject={handleRejectJob}
+            refreshTrigger={refreshTrigger}
           />
         )}
       </main>
@@ -674,81 +759,161 @@ export default function WorkerDashboard() {
 }
 
 /* ------------------ Job Section ------------------ */
-function JobSection({ history, onEndJob, onCollectPayment, setHistory, workerLocation }) {
-  const activeJobs = history.filter((h) => h.status === "pending");
-  const nextJob = activeJobs[0]; // Assuming the first pending job is the next job
+function JobSection({ problems, onAcceptJob, onCompleteJob, fetchAssignedProblems, workerLocation }) {
+  const requestedProblems = problems.filter((p) => p.status === 'requested');
+  const activeProblems = problems.filter((p) => p.status === 'assigned' || p.status === 'in_progress');
+  const completedProblems = problems.filter((p) => p.status === 'completed');
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-6">
-        {/* Active jobs list */}
+      <div className="grid grid-cols-1 gap-6">
+        {/* Job Requests */}
         <div className="bg-white p-6 rounded-xl shadow-sm">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold">Active / Pending Jobs</h3>
-            <Badge>Auto-matching ON</Badge>
+            <h3 className="font-semibold">Job Requests</h3>
+            <Badge>{requestedProblems.length}</Badge>
           </div>
 
           <div className="space-y-3">
-            {activeJobs.length === 0 && <p className="text-sm text-gray-500">No pending jobs right now.</p>}
+            {requestedProblems.length === 0 && <p className="text-sm text-gray-500">No job requests.</p>}
 
-            {activeJobs.map((job) => (
-              <div key={job.id} className="border p-4 rounded-lg flex items-center justify-between">
-                <div>
+            {requestedProblems.map((problem) => (
+              <div key={problem._id} className="border p-4 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-medium">{problem.title}</h4>
+                      <span className="text-xs text-gray-400">{new Date(problem.createdAt).toLocaleDateString()}</span>
+                    </div>
+                    <p className="text-sm text-gray-500">{problem.createdBy?.name || "Customer"} • {problem.location?.city || "Unknown"}</p>
+                    <p className="text-xs text-gray-500 mt-1">{problem.description}</p>
+                  </div>
+
                   <div className="flex items-center gap-2">
-                    <h4 className="font-medium">{job.title}</h4>
-                    <span className="text-xs text-gray-400">{job.date}</span>
+                    <button 
+                      onClick={async () => {
+                        try {
+                          await fetch(`${API_BASE_URL}/api/problems/${problem._id}/accept`, {
+                            method: "PUT",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ workerId: problem.assignedTo })
+                          });
+                          alert("Job accepted!");
+                          fetchAssignedProblems();
+                        } catch (err) {
+                          console.error("Failed to accept job:", err);
+                          alert("Failed to accept job");
+                        }
+                      }}
+                      className="bg-green-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-600"
+                    >
+                      Accept
+                    </button>
+                    <button 
+                      onClick={async () => {
+                        try {
+                          await fetch(`${API_BASE_URL}/api/problems/${problem._id}/reject`, {
+                            method: "PUT",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ workerId: problem.assignedTo })
+                          });
+                          alert("Job rejected!");
+                          fetchAssignedProblems();
+                        } catch (err) {
+                          console.error("Failed to reject job:", err);
+                          alert("Failed to reject job");
+                        }
+                      }}
+                      className="bg-red-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-red-600"
+                    >
+                      Reject
+                    </button>
                   </div>
-                  <p className="text-sm text-gray-500">{job.customer} • {job.location}</p>
-                  <p className="text-xs text-gray-500 mt-1">Amount: ${job.amount || 0}</p>
-                  <div className="flex items-center gap-2 mt-2 text-xs">
-                    <Badge>OTP on Complete</Badge>
-                    <Badge>Photos</Badge>
-                    <Badge>Nav</Badge>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {/* Accept/Reject */}
-                  {job.status === "pending" && (
-                    <>
-                      <button onClick={() => setHistory((h) => h.map((j) => (j.id === job.id ? { ...j, status: "accepted" } : j)))} className="px-3 py-1 rounded-md bg-green-600 text-white text-sm">Accept</button>
-                      <button onClick={() => setHistory((h) => h.map((j) => (j.id === job.id ? { ...j, status: "rejected" } : j)))} className="px-3 py-1 rounded-md bg-red-50 text-red-600 border">Reject</button>
-                    </>
-                  )}
-
-                  {/* If accepted show start/end */}
-                  {(job.status === "accepted" || job.status === "pending") && (
-                    <>
-                      <button onClick={() => onEndJob(job.id)} className="px-3 py-1 rounded-md bg-blue-600 text-white text-sm">End Job</button>
-                    </>
-                  )}
-
-                  {job.status === "otp-verified" && (
-                    <button onClick={() => onCollectPayment(job.id)} className="px-3 py-1 rounded-md bg-emerald-600 text-white text-sm">Collect Payment</button>
-                  )}
                 </div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Next Job */}
-        {nextJob && (
-          <div className="bg-white p-6 rounded-xl shadow-sm">
-            <h3 className="font-semibold mb-2">Next Job</h3>
-            <p className="text-sm text-gray-500 mb-4">
-              {nextJob.title} • {nextJob.customer} • {nextJob.location}
-            </p>
-            <div className="flex gap-3">
-              <button className="px-4 py-2 bg-green-600 text-white rounded-md">
-                View Photos
-              </button>
-              <button className="px-4 py-2 bg-blue-600 text-white rounded-md">
-                Navigate
-              </button>
-            </div>
+        {/* Active jobs list */}
+        <div className="bg-white p-6 rounded-xl shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold">Active Jobs</h3>
+            <Badge>Auto-matching ON</Badge>
           </div>
-        )}
+
+          <div className="space-y-3">
+            {activeProblems.length === 0 && <p className="text-sm text-gray-500">No active jobs right now.</p>}
+
+            {activeProblems.map((problem) => (
+              <div key={problem._id} className="border p-4 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-medium">{problem.title}</h4>
+                      <span className="text-xs text-gray-400">{new Date(problem.createdAt).toLocaleDateString()}</span>
+                    </div>
+                    <p className="text-sm text-gray-500">{problem.createdBy?.name || "Customer"} • {problem.location?.city || "Unknown"}</p>
+                    <p className="text-xs text-gray-500 mt-1">Payment: {problem.paymentMethod || "N/A"}</p>
+                    <div className="flex items-center gap-2 mt-2 text-xs">
+                      <Badge>OTP Required</Badge>
+                      <Badge>{problem.status}</Badge>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {problem.status === 'assigned' && (
+                      <button 
+                        onClick={async () => {
+                          // Start the job
+                          try {
+                            await fetch(`${API_BASE_URL}/api/problems/${problem._id}/start`, {
+                              method: "PUT",
+                              headers: { "Content-Type": "application/json" },
+                            });
+                            fetchAssignedProblems();
+                          } catch (err) {
+                            console.error("Failed to start job:", err);
+                          }
+                        }}
+                        className="px-3 py-1 rounded-md bg-green-600 text-white text-sm"
+                      >
+                        Start Job
+                      </button>
+                    )}
+                    {problem.status === 'in_progress' && (
+                      <button 
+                        onClick={() => onCompleteJob(problem._id)}
+                        className="px-3 py-1 rounded-md bg-blue-600 text-white text-sm"
+                      >
+                        Complete Job
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Completed jobs */}
+        <div className="bg-white p-6 rounded-xl shadow-sm">
+          <h3 className="font-semibold mb-4">Recent Completed Jobs</h3>
+          <div className="space-y-3">
+            {completedProblems.slice(0, 5).map((problem) => (
+              <div key={problem._id} className="border p-4 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="font-medium">{problem.title}</h4>
+                    <p className="text-sm text-gray-500">{problem.createdBy?.name || "Customer"}</p>
+                    <p className="text-xs text-gray-500">Completed: {new Date(problem.completedAt).toLocaleDateString()}</p>
+                  </div>
+                  <Badge className="bg-green-100 text-green-800">Completed</Badge>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* Live Location */}
@@ -998,16 +1163,13 @@ function HistorySection({ history }) {
 }
 
 /* ------------------ Find Work Section (Job Board) ------------------ */
-function FindWorkSection({ workerCategory, onAccept }) {
+function FindWorkSection({ workerCategory, onAccept, onReject, refreshTrigger }) {
   const [problems, setProblems] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchProblems = async () => {
       try {
-        // Fetch open problems. 
-        // We can filter by category if we know the worker's category.
-        // For now, fetching all open problems or filtering by 'General' if undefined.
         let url = `${API_BASE_URL}/api/problems/open`;
         if (workerCategory) {
           url += `?category=${workerCategory}`;
@@ -1025,11 +1187,12 @@ function FindWorkSection({ workerCategory, onAccept }) {
 
     fetchProblems();
 
-    // Optional: Poll every 10 seconds or rely on socket 'new-problem' event in parent
-    const interval = setInterval(fetchProblems, 10000);
+    // Poll every 5 seconds for updates
+    const interval = setInterval(fetchProblems, 5000);
+    
     return () => clearInterval(interval);
 
-  }, [workerCategory]);
+  }, [workerCategory, refreshTrigger]);
 
   if (loading) return <div>Loading available jobs...</div>;
 
@@ -1058,12 +1221,20 @@ function FindWorkSection({ workerCategory, onAccept }) {
                 </div>
                 <p className="text-gray-600 mt-2 text-sm">{problem.description}</p>
               </div>
-              <button
-                onClick={() => onAccept(problem._id)}
-                className="bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded-md font-medium shadow-sm transition transform active:scale-95"
-              >
-                Accept Job
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => onAccept(problem._id)}
+                  className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md font-medium shadow-sm transition transform active:scale-95"
+                >
+                  Accept Job
+                </button>
+                <button
+                  onClick={() => onReject(problem._id)}
+                  className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md font-medium shadow-sm transition transform active:scale-95"
+                >
+                  Reject Job
+                </button>
+              </div>
             </div>
           ))
         )}

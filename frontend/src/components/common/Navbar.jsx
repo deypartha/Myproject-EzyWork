@@ -2,7 +2,7 @@ import React from 'react'
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { Menu, X, LogOut, User as UserIcon, Sun, Moon, History } from 'lucide-react';
+import { Menu, X, LogOut, User as UserIcon, Moon, History } from 'lucide-react';
 
 function Navbar() {
   const navigate = useNavigate();
@@ -11,14 +11,7 @@ function Navbar() {
   const [isAccountOpen, setIsAccountOpen] = useState(false);
   const [showBookingHistory, setShowBookingHistory] = useState(false);
   const [bookingHistory, setBookingHistory] = useState([]);
-  const [theme, setTheme] = useState(() => {
-    if (typeof window === 'undefined') return 'light';
-    const saved = localStorage.getItem('theme');
-    if (saved === 'light' || saved === 'dark') return saved;
-    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
-      ? 'dark'
-      : 'light';
-  });
+  const [theme, setTheme] = useState('dark');
 
   useEffect(() => {
     const root = document.documentElement;
@@ -65,7 +58,7 @@ function Navbar() {
     setIsAccountOpen(false);
   };
 
-  const toggleTheme = () => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+  // Light mode removed; theme is fixed to dark.
 
   return (
     <div className="w-full">
@@ -81,14 +74,7 @@ function Navbar() {
             </button>
           </nav>
 
-          <button
-            onClick={toggleTheme}
-            className="p-2 rounded-md border border-gray-200 hover:bg-gray-100 transition-colors"
-            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            aria-label="Toggle color mode"
-          >
-            {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-          </button>
+          {/* Color mode toggle removed - app uses dark mode only */}
           
           {isAuthenticated && user ? (
             <div className="relative">
@@ -170,14 +156,7 @@ function Navbar() {
             Features
           </button>
 
-          <button
-            onClick={toggleTheme}
-            className="flex items-center gap-2 text-gray-700 hover:text-black py-2 transition-colors"
-            aria-label="Toggle color mode"
-          >
-            {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-            {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
-          </button>
+          {/* Color mode toggle removed from mobile menu */}
           
           {isAuthenticated && user ? (
             <>
