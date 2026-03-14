@@ -3,6 +3,7 @@ import { FaMicrophone, FaCamera, FaStar, FaMapMarkerAlt, FaQuestionCircle, FaTim
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../../context/AuthContext";
 import API_BASE_URL from "../../../config/api";
+import { io } from "socket.io-client";
 
 function User() {
   const { user } = useAuth();
@@ -30,10 +31,14 @@ function User() {
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const navigate = useNavigate();
+  const socketRef = useRef(null);
   const [helpModalOpen, setHelpModalOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState([]);
   const [showQuestions, setShowQuestions] = useState(true);
   const chatEndRef = useRef(null);
+  const [currentProblemId, setCurrentProblemId] = useState(null);
+  const [userProblems, setUserProblems] = useState([]);
+  const [currentProblem, setCurrentProblem] = useState(null);
 
   // Predefined FAQ
   const faqData = [
@@ -105,6 +110,11 @@ function User() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages]);
 
+  // Fetch user problems on mount
+  useEffect(() => {
+    fetchUserProblems();
+  }, [user]);
+
   const isPlumberRequest = (text) => {
     if (!text) return false;
     const t = text.toLowerCase();
@@ -143,14 +153,15 @@ function User() {
 
   const handleProblemSubmit = () => {
     (async () => {
-      const skill = await detectSkill(problem);
-      setDetectedSkill(skill);
-
       try {
+        const skill = await detectSkill(problem);
+        setDetectedSkill(skill);
+
         // 1. Create Problem in Backend (Triggers Socket Broadcast)
+        let createdProblem = null;
         if (user) {
           try {
-            await fetch(`${API_BASE_URL}/api/problems/create`, {
+            const res = await fetch(`${API_BASE_URL}/api/problems/create`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -161,6 +172,10 @@ function User() {
                 location: { city: "Unknown" } // Placeholder
               })
             });
+            if (res.ok) {
+              createdProblem = await res.json();
+              setCurrentProblemId(createdProblem._id);
+            }
           } catch (err) {
             console.error("Failed to broadcast problem:", err);
             // Continue anyway to show list
@@ -194,31 +209,60 @@ function User() {
 
         setWorkerSuggestions(transformedWorkers);
         setStep(2);
+
       } catch (error) {
-        console.error("Error fetching workers:", error);
-        alert("Failed to fetch workers. Please try again.");
+        console.error("Error in handleProblemSubmit:", error);
+        alert("Failed to process problem. Please try again.");
       }
     })();
   };
 
-  const handleWorkerAccept = (worker) => {
+  const handleWorkerSelect = async (worker) => {
     setSelectedWorker(worker);
-    setStep(3);
+    if (currentProblemId) {
+      try {
+        await fetch(`${API_BASE_URL}/api/problems/${currentProblemId}/request`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ workerId: worker.id })
+        });
+        alert("Request sent to worker! Waiting for acceptance.");
+        setStep(3); // Go to waiting step
+      } catch (err) {
+        console.error("Failed to request worker:", err);
+        alert("Failed to send request");
+      }
+    }
   };
 
-  const handlePayment = (method) => {
+  const handlePayment = async (method) => {
     const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
     setOtp(generatedOtp);
 
+    if (currentProblemId) {
+      try {
+        await fetch(`${API_BASE_URL}/api/problems/${currentProblemId}/book`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ otp: generatedOtp, paymentMethod: method })
+        });
+      } catch (err) {
+        console.error("Failed to update booking:", err);
+      }
+    }
+
+    // Still save to localStorage for now, but will fetch from backend later
     const newBooking = {
+      problemId: currentProblemId,
       worker: selectedWorker,
       problem,
-      status: "Pending",
+      status: "assigned",
       otp: generatedOtp,
       workerName: selectedWorker.name,
       workerEmail: selectedWorker.contact,
       dateTime: new Date().toLocaleString(),
       price: selectedWorker.price,
+      paymentMethod: method,
     };
 
     setHistory((prev) => [...prev, newBooking]);
@@ -232,11 +276,37 @@ function User() {
       localStorage.setItem(bookingKey, JSON.stringify(bookings));
     }
 
-    setStep(4);
+    setStep(5); // Go to dashboard
   };
 
   const cancelWork = (historyItem) => {
     setHistory((prev) => prev.filter((item) => item !== historyItem));
+  };
+
+  const fetchUserProblems = async () => {
+    if (!user) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/problems/user/${user.id || user._id}`);
+      if (res.ok) {
+        const problems = await res.json();
+        setUserProblems(problems);
+      }
+    } catch (err) {
+      console.error("Failed to fetch user problems:", err);
+    }
+  };
+
+  const fetchCurrentProblem = async () => {
+    if (!currentProblemId) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/problems/${currentProblemId}`);
+      if (res.ok) {
+        const problem = await res.json();
+        setCurrentProblem(problem);
+      }
+    } catch (err) {
+      console.error("Failed to fetch current problem:", err);
+    }
   };
 
   // Camera / microphone helpers
@@ -491,22 +561,65 @@ function User() {
     navigate("/payment", { state: { worker, problem } });
   };
 
+  // Fetch current problem when in dashboard
+  useEffect(() => {
+    if (step === 5 && currentProblemId) {
+      fetchCurrentProblem();
+      const interval = setInterval(fetchCurrentProblem, 5000); // Poll every 5 seconds
+      return () => clearInterval(interval);
+    }
+  }, [step, currentProblemId]);
+
+  // Initialize Socket
+  useEffect(() => {
+    socketRef.current = io(API_BASE_URL);
+    if (user && user.id) {
+      socketRef.current.emit("join-room", `user-${user.id}`);
+      console.log("Joined user room:", `user-${user.id}`);
+    }
+    return () => {
+      socketRef.current.disconnect();
+    };
+  }, [user]);
+
+  // Listen for Request Accepted
+  useEffect(() => {
+    if (!socketRef.current) return;
+
+    socketRef.current.on("request-accepted", (data) => {
+      console.log("Request Accepted:", data);
+      alert("Your worker request has been accepted! You can now proceed to payment.");
+      
+      // Refresh current problem and go to payment step
+      if (currentProblemId) {
+        fetchCurrentProblem();
+        setStep(4);
+      }
+    });
+
+    return () => {
+      socketRef.current.off("request-accepted");
+    };
+  }, [currentProblemId]);
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 py-8 px-4 md:px-8">
+    <div className="min-h-screen bg-gradient-to-br from-slate-800 via-gray-800 to-indigo-900 py-8 px-4 md:px-8">
       <div className="max-w-6xl mx-auto">
+        <button onClick={()=>navigate('/')} className="mb-4 bg-gray-600 p-5 text-blue-500 hover:text-blue-700 font-medium cursor-pointer">Back to Home</button>
         {/* Step Progress Indicator */}
         <div className="mb-8">
           <div className="flex items-center justify-center gap-2 md:gap-4">
             {[
               { num: 1, label: "Describe Problem" },
               { num: 2, label: "Select Worker" },
-              { num: 3, label: "Confirm Booking" },
-              { num: 4, label: "Get OTP" }
+              { num: 3, label: "Wait for Acceptance" },
+              { num: 4, label: "Payment" },
+              { num: 5, label: "Booking Dashboard" }
             ].map((s, idx) => (
               <div key={s.num} className="flex items-center">
                 <div className="flex flex-col items-center">
                   <div className={`w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center font-bold text-sm md:text-base transition-all duration-300 ${step === s.num
-                    ? 'bg-blue-600 text-white shadow-lg scale-110'
+                    ? 'bg-blue-800 text-white shadow-lg scale-110'
                     : step > s.num
                       ? 'bg-green-500 text-white'
                       : 'bg-gray-200 text-gray-500'
@@ -529,7 +642,7 @@ function User() {
 
         {/* Step 1: Problem Description */}
         {step === 1 && (
-          <div className="bg-white rounded-2xl shadow-xl p-6 md:p-10 border border-gray-100">
+          <div className="bg-white rounded-2xl shadow-lg p-6 md:p-10 border border-gray-200">
             <div className="mb-6">
               <h2 className="text-3xl md:text-4xl font-bold text-gray-800 mb-2">
                 What can we help you with?
@@ -544,7 +657,7 @@ function User() {
                   placeholder="Example: My AC is not cooling properly, making strange noises..."
                   value={problem}
                   onChange={(e) => setProblem(e.target.value)}
-                  className="w-full h-48 px-6 py-4 border-2 border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none text-gray-700 placeholder-gray-400 transition-all"
+                  className="w-full h-48 px-6 py-4 border-2 border-blue-00 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none text-gray-700 placeholder-gray-400 transition-all"
                 />
                 <div className="absolute bottom-4 right-4 text-sm text-gray-400">
                   {problem.length} characters
@@ -729,7 +842,7 @@ function User() {
 
                   <div className="flex gap-2">
                     <button
-                      onClick={() => handleWorkerAccept(worker)}
+                      onClick={() => handleWorkerSelect(worker)}
                       className="flex-1 bg-blue-600 text-white px-4 py-2.5 rounded-lg hover:bg-blue-700 font-medium text-sm transition-all"
                     >
                       Select
@@ -741,41 +854,10 @@ function User() {
                 </div>
               ))}
             </div>
-            {/* If this was a plumber request, show bottom plumber card with cycle/next/accept */}
-            {isPlumberRequest(problem) && workerSuggestions.length > 0 && (
-              <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 w-full max-w-3xl bg-white p-4 rounded-lg shadow-2xl border">
-                {(() => {
-                  const w = workerSuggestions[currentIndex % workerSuggestions.length];
-                  return (
-                    <div className="flex items-center gap-4">
-                      <div className="w-20 h-20 bg-gray-200 rounded-md shrink-0" />
-                      <div className="flex-1">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <h3 className="text-lg font-semibold text-[#0b2545]">{w.name}</h3>
-                            <p className="text-sm text-gray-600">{w.skill} • {w.location}</p>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-yellow-500 flex items-center gap-1"><FaStar /> <span>{w.rating}</span></div>
-                            <div className="text-gray-600 text-sm">{w.price}</div>
-                          </div>
-                        </div>
-                        <div className="mt-2 text-sm text-gray-600">Contact: <strong>{w.contact}</strong></div>
-                        <div className="mt-3 flex gap-3">
-                          <button onClick={() => handleAcceptAndPay(w)} className="bg-green-600 text-white px-4 py-2 rounded-md font-semibold">Accept</button>
-                          <button onClick={handleNextWorker} className="bg-gray-200 text-[#0b2545] px-4 py-2 rounded-md font-semibold">Next</button>
-                          <button onClick={() => setWorkerSuggestions(prev => prev.filter(x => x.id !== w.id))} className="bg-red-500 text-white px-4 py-2 rounded-md font-semibold">Reject</button>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })()}
-              </div>
-            )}
           </div>
         )}
 
-        {/* Step 3: Confirmation */}
+        {/* Step 3: Waiting for Acceptance */}
         {step === 3 && selectedWorker && (
           <div className="bg-white rounded-xl shadow-lg p-8 border border-gray-200 max-w-2xl mx-auto">
             {/* Back Button */}
@@ -787,11 +869,14 @@ function User() {
               <span className="font-medium">Back to Worker Selection</span>
             </button>
 
-            <div className="mb-6">
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <FaUser className="text-blue-600 text-2xl" />
+              </div>
               <h2 className="text-3xl font-bold text-gray-800 mb-2">
-                Confirm Your Booking
+                Request Sent!
               </h2>
-              <p className="text-gray-600">Review the details before proceeding</p>
+              <p className="text-gray-600">Waiting for {selectedWorker.name} to accept your request</p>
             </div>
 
             <div className="space-y-4 mb-8">
@@ -799,7 +884,7 @@ function User() {
               <div className="border border-gray-200 rounded-lg p-5">
                 <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-100">
                   <FaUser className="text-blue-600 text-lg" />
-                  <span className="text-gray-800 font-semibold text-lg">Worker Details</span>
+                  <span className="text-gray-800 font-semibold text-lg">Requested Worker</span>
                 </div>
                 <div className="space-y-2.5">
                   <div className="flex items-start">
@@ -824,6 +909,59 @@ function User() {
               </div>
 
               {/* Problem Description Box */}
+              <div className="border border-gray-200 rounded-lg p-5">
+                <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-100">
+                  <FaClipboardList className="text-blue-600 text-lg" />
+                  <span className="text-gray-800 font-semibold text-lg">Your Problem</span>
+                </div>
+                <p className="text-gray-700 leading-relaxed">{problem}</p>
+              </div>
+            </div>
+
+            <div className="text-center">
+              <div className="inline-flex items-center gap-2 text-gray-500">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                <span>Please wait while the worker reviews your request...</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Step 4: Payment */}
+        {step === 4 && selectedWorker && (
+          <div className="bg-white rounded-xl shadow-lg p-8 border border-gray-200 max-w-2xl mx-auto">
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <FaCreditCard className="text-green-600 text-2xl" />
+              </div>
+              <h2 className="text-3xl font-bold text-gray-800 mb-2">
+                Payment Options
+              </h2>
+              <p className="text-gray-600">Choose your preferred payment method</p>
+            </div>
+
+            <div className="space-y-4 mb-8">
+              <div className="border border-gray-200 rounded-lg p-5">
+                <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-100">
+                  <FaUser className="text-blue-600 text-lg" />
+                  <span className="text-gray-800 font-semibold text-lg">Worker Details</span>
+                </div>
+                <div className="space-y-2.5">
+                  <div className="flex items-start">
+                    <span className="text-gray-600 w-24 text-sm">Name:</span>
+                    <span className="text-gray-800 font-medium">{selectedWorker.name}</span>
+                  </div>
+                  <div className="flex items-start">
+                    <span className="text-gray-600 w-24 text-sm">Skill:</span>
+                    <span className="text-gray-800 font-medium">{selectedWorker.skill}</span>
+                  </div>
+                  <div className="flex items-start">
+                    <span className="text-gray-600 w-24 text-sm">Price:</span>
+                    <span className="text-gray-800 font-medium">{selectedWorker.price}</span>
+                  </div>
+                </div>
+              </div>
+
               <div className="border border-gray-200 rounded-lg p-5">
                 <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-100">
                   <FaClipboardList className="text-blue-600 text-lg" />
@@ -852,60 +990,120 @@ function User() {
           </div>
         )}
 
-        {/* Step 4: OTP Generation */}
-        {step === 4 && (
-          <div className="bg-white rounded-xl shadow-lg p-8 border border-gray-200 max-w-xl mx-auto">
-            <div className="text-center">
+        {/* Step 5: Booking Dashboard */}
+        {step === 5 && (
+          <div className="bg-white rounded-xl shadow-lg p-8 border border-gray-200 max-w-4xl mx-auto">
+            <div className="text-center mb-8">
               <div className="w-16 h-16 bg-green-600 rounded-full flex items-center justify-center mx-auto mb-5">
                 <FaCheckCircle className="text-white text-3xl" />
               </div>
-
               <h2 className="text-3xl font-bold text-gray-800 mb-2">
                 Booking Confirmed!
               </h2>
-              <p className="text-gray-600 mb-4">Your worker will arrive shortly</p>
-              <p className="text-sm text-gray-500 mb-8">Note: You cannot go back after booking is confirmed</p>
+              <p className="text-gray-600">Your worker will arrive shortly</p>
+            </div>
 
-              {/* OTP Box */}
-              <div className="border-2 border-gray-200 rounded-lg p-6 mb-6">
-                <p className="text-gray-700 font-medium mb-4 text-sm uppercase tracking-wide">Your One-Time Password</p>
-                <div className="bg-gray-50 rounded-lg p-6 mb-5">
-                  <div className="text-5xl font-bold text-blue-600 tracking-widest font-mono">
-                    {otp}
-                  </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              {/* User Details */}
+              <div className="border border-gray-200 rounded-lg p-6">
+                <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-100">
+                  <FaUser className="text-blue-600 text-lg" />
+                  <span className="text-gray-800 font-semibold text-lg">User Details</span>
                 </div>
-
-                {/* Warning Box */}
-                <div className="flex items-start gap-3 bg-yellow-50 border border-yellow-300 rounded-lg p-4 text-left">
-                  <FaExclamationTriangle className="text-yellow-600 text-xl mt-0.5 flex-shrink-0" />
-                  <div>
-                    <p className="text-sm font-semibold text-gray-800 mb-1">Important Security Notice</p>
-                    <p className="text-sm text-gray-700">
-                      Share this OTP with the worker ONLY after the work is completed to your satisfaction.
-                    </p>
+                <div className="space-y-2">
+                  <div className="flex items-start">
+                    <span className="text-gray-600 w-24 text-sm">Name:</span>
+                    <span className="text-gray-800 font-medium">{user?.name || user?.fullName || "User"}</span>
+                  </div>
+                  <div className="flex items-start">
+                    <span className="text-gray-600 w-24 text-sm">Problem:</span>
+                    <span className="text-gray-800 font-medium">{problem}</span>
+                  </div>
+                  <div className="flex items-start">
+                    <span className="text-gray-600 w-24 text-sm">Raised:</span>
+                    <span className="text-gray-800 font-medium">{new Date().toLocaleString()}</span>
                   </div>
                 </div>
               </div>
 
-              <div className="space-y-3">
-                <button
-                  onClick={() => {
-                    setStep(1);
-                    setProblem("");
-                    setSelectedWorker(null);
-                    setOtp("");
-                  }}
-                  className="w-full bg-blue-600 text-white px-6 py-3.5 rounded-lg hover:bg-blue-700 font-semibold transition-all"
-                >
-                  Book Another Worker
-                </button>
-                <button
-                  onClick={() => setStep(6)}
-                  className="w-full bg-gray-100 text-gray-700 px-6 py-3 rounded-lg hover:bg-gray-200 font-medium transition-all"
-                >
-                  View Pending Bookings
-                </button>
+              {/* Worker Details */}
+              <div className="border border-gray-200 rounded-lg p-6">
+                <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-100">
+                  <FaUser className="text-blue-600 text-lg" />
+                  <span className="text-gray-800 font-semibold text-lg">Worker Details</span>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-start">
+                    <span className="text-gray-600 w-24 text-sm">Name:</span>
+                    <span className="text-gray-800 font-medium">{selectedWorker?.name}</span>
+                  </div>
+                  <div className="flex items-start">
+                    <span className="text-gray-600 w-24 text-sm">Contact:</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-800 font-medium">{selectedWorker?.contact}</span>
+                      <button
+                        onClick={() => window.open(`tel:${selectedWorker?.contact}`, '_self')}
+                        className="bg-green-500 text-white p-1 rounded-full hover:bg-green-600 transition-colors"
+                        title="Call Worker"
+                      >
+                        <FaPhone className="text-sm" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex items-start">
+                    <span className="text-gray-600 w-24 text-sm">Status:</span>
+                    <span className={`font-medium ${
+                      currentProblem?.status === 'completed' ? 'text-green-600' :
+                      currentProblem?.status === 'in_progress' ? 'text-orange-600' :
+                      'text-blue-600'
+                    }`}>
+                      {currentProblem?.status === 'completed' ? 'Resolved' :
+                       currentProblem?.status === 'in_progress' ? 'In Progress' :
+                       'Assigned'}
+                    </span>
+                  </div>
+                </div>
               </div>
+            </div>
+
+            {/* OTP Section */}
+            <div className="mt-8 border-2 border-gray-200 rounded-lg p-6">
+              <p className="text-gray-700 font-medium mb-4 text-sm uppercase tracking-wide">Your One-Time Password</p>
+              <div className="bg-gray-50 rounded-lg p-6 mb-5">
+                <div className="text-5xl font-bold text-blue-600 tracking-widest font-mono text-center">
+                  {otp}
+                </div>
+              </div>
+              <div className="flex items-start gap-3 bg-yellow-50 border border-yellow-300 rounded-lg p-4 text-left">
+                <FaExclamationTriangle className="text-yellow-600 text-xl mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-gray-800 mb-1">Important Security Notice</p>
+                  <p className="text-sm text-gray-700">
+                    Share this OTP with the worker ONLY after the work is completed to your satisfaction.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3 mt-8">
+              <button
+                onClick={() => {
+                  setStep(1);
+                  setProblem("");
+                  setSelectedWorker(null);
+                  setOtp("");
+                  setCurrentProblemId(null);
+                }}
+                className="flex-1 bg-blue-600 text-white px-6 py-3.5 rounded-lg hover:bg-blue-700 font-semibold transition-all"
+              >
+                Book Another Worker
+              </button>
+              <button
+                onClick={() => setStep(6)}
+                className="flex-1 bg-gray-100 text-gray-700 px-6 py-3 rounded-lg hover:bg-gray-200 font-medium transition-all"
+              >
+                View All Bookings
+              </button>
             </div>
           </div>
         )}
@@ -937,35 +1135,66 @@ function User() {
           </div>
         )}
 
-        {/* Step 6: Pending */}
+        {/* Step 6: All Bookings */}
         {step === 6 && (
           <div className="w-full max-w-7xl">
-            <h2 className="text-3xl font-bold text-[#0b2545] mb-6">Pending</h2>
+            <h2 className="text-3xl font-bold text-[#0b2545] mb-6">All Bookings</h2>
             <div className="grid grid-cols-1 gap-6">
-              {history
-                .filter((item) => item.status === "Pending")
-                .map((item, index) => (
-                  <div
-                    key={index}
-                    className="bg-white p-6 rounded-lg shadow-md hover:shadow-lg transition"
-                  >
-                    <p className="text-gray-600 mb-2">
-                      Problem: <strong>{item.problem}</strong>
-                    </p>
-                    <p className="text-gray-600 mb-2">
-                      Worker: <strong>{item.worker.name}</strong>
-                    </p>
-                    <p className="text-gray-600 mb-2">
-                      OTP: <strong>{item.otp}</strong>
-                    </p>
-                    <button
-                      onClick={() => cancelWork(item)}
-                      className="bg-red-500 text-white px-4 py-2 rounded-md hover:bg-red-600 font-semibold"
-                    >
-                      Cancel
-                    </button>
+              {userProblems.map((problem, index) => (
+                <div
+                  key={problem._id}
+                  className="bg-white p-6 rounded-lg shadow-md hover:shadow-lg transition"
+                >
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-gray-600 mb-2">
+                        Problem: <strong>{problem.description}</strong>
+                      </p>
+                      <p className="text-gray-600 mb-2">
+                        Category: <strong>{problem.category}</strong>
+                      </p>
+                      <p className="text-gray-600 mb-2">
+                        Created: <strong>{new Date(problem.createdAt).toLocaleString()}</strong>
+                      </p>
+                      <p className="text-gray-600 mb-2">
+                        Payment: <strong>{problem.paymentMethod || "N/A"}</strong>
+                      </p>
+                    </div>
+                    <div>
+                      {problem.assignedTo && (
+                        <>
+                          <p className="text-gray-600 mb-2">
+                            Worker: <strong>{problem.assignedTo.fullName || problem.assignedTo.name}</strong>
+                          </p>
+                          <p className="text-gray-600 mb-2">
+                            Contact: <strong>{problem.assignedTo.mobileNumber}</strong>
+                            <button
+                              onClick={() => window.open(`tel:${problem.assignedTo.mobileNumber}`, '_self')}
+                              className="ml-2 bg-green-500 text-white p-1 rounded-full hover:bg-green-600 transition-colors"
+                              title="Call Worker"
+                            >
+                              <FaPhone className="text-sm" />
+                            </button>
+                          </p>
+                        </>
+                      )}
+                      <p className="text-gray-600 mb-2">
+                        Status: <strong className={`${
+                          problem.status === 'completed' ? 'text-green-500' :
+                          problem.status === 'in_progress' ? 'text-orange-500' :
+                          problem.status === 'assigned' ? 'text-blue-500' :
+                          'text-gray-500'
+                        }`}>{problem.status}</strong>
+                      </p>
+                      {problem.otp && (
+                        <p className="text-gray-600 mb-2">
+                          OTP: <strong>{problem.otp}</strong>
+                        </p>
+                      )}
+                    </div>
                   </div>
-                ))}
+                </div>
+              ))}
             </div>
           </div>
         )}

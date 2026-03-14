@@ -12,12 +12,16 @@ const problemSchema = new mongoose.Schema({
   },
   status: { 
     type: String, 
-    enum: ["open", "assigned", "completed", "cancelled"], 
+    enum: ["open", "requested", "assigned", "in_progress", "completed", "cancelled"], 
     default: "open" 
   },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: "Worker" },
-  createdAt: { type: Date, default: Date.now }
+  otp: { type: String },
+  paymentMethod: { type: String, enum: ["Pay Now", "Pay Later"] },
+  createdAt: { type: Date, default: Date.now },
+  assignedAt: { type: Date },
+  completedAt: { type: Date }
 });
 
 export default mongoose.model("Problem", problemSchema);
