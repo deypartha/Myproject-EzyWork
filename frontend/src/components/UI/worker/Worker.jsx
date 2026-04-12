@@ -113,58 +113,94 @@ export default function WorkerDashboard() {
   const [manualCity, setManualCity] = useState("");
   const { user } = useAuth(); // Get user from auth
   const [workerProfile, setWorkerProfile] = useState(null); // Store full worker profile
+  const [workerRecord, setWorkerRecord] = useState(null); // Actual worker document reference
   const socketRef = useRef(null); // Socket reference
   const [assignedProblems, setAssignedProblems] = useState([]);
   const refreshFindWorkRef = useRef(null); // Ref to trigger find work refresh
   const [refreshTrigger, setRefreshTrigger] = useState(false); // Trigger FindWorkSection refresh
+  const workerId = workerRecord?._id || user?.id || user?._id;
 
   // Initialize Socket
   useEffect(() => {
     socketRef.current = io(API_BASE_URL);
 
-    // Join worker-specific room immediately for personal requests
-    if (user && user.id) {
-      socketRef.current.emit("join-room", `worker-${user.id}`);
-      console.log("Joined worker room:", `worker-${user.id}`);
-    }
-
     return () => {
       socketRef.current.disconnect();
     };
-  }, [user]);
+  }, []);
+
+  useEffect(() => {
+    if (!socketRef.current) return;
+
+    const joinRoom = (room) => {
+      if (!room) return;
+      socketRef.current.emit("join-room", room);
+      console.log("Joined room:", room);
+    };
+
+    const rooms = new Set();
+    if (workerRecord?._id) rooms.add(`worker-${workerRecord._id}`);
+    if (user?.id) rooms.add(`worker-${user.id}`);
+    if (user?._id) rooms.add(`worker-${user._id}`);
+
+    const workerEmail = workerProfile?.email || user?.email;
+    if (workerEmail) rooms.add(`worker-email-${workerEmail}`);
+
+    if (workerProfile?.typeOfWork) {
+      if (Array.isArray(workerProfile.typeOfWork)) {
+        workerProfile.typeOfWork.forEach((skill) => rooms.add(skill));
+      } else {
+        rooms.add(workerProfile.typeOfWork);
+      }
+    }
+
+    rooms.forEach(joinRoom);
+  }, [user?.id, user?._id, user?.email, workerRecord?._id, workerProfile?.email, workerProfile?.typeOfWork]);
 
   // Fetch Worker Profile to get Skills and Registered Location
   useEffect(() => {
-    if (user && user.id) {
-      const fetchWorkerProfile = async () => {
-        try {
-          const response = await fetch(`${API_BASE_URL}/api/workers/${user.id}`);
-          if (response.ok) {
-            const data = await response.json();
-            setWorkerProfile(data);
-            // Use registered location as primary
-            if (data.location) {
-              setManualCity(data.location);
-              setWorkerLocation(prev => ({
-                ...prev,
-                city: data.location,
-                country: "India" // Default to India if not specified
-              }));
-            }
+    if (!user) return;
+
+    const fetchWorkerProfile = async () => {
+      try {
+        let response = await fetch(`${API_BASE_URL}/api/workers/${user.id || user._id}`);
+        let data = null;
+
+        if (response.ok) {
+          data = await response.json();
+        } else {
+          const allWorkersRes = await fetch(`${API_BASE_URL}/api/workers/all`);
+          if (allWorkersRes.ok) {
+            const allWorkers = await allWorkersRes.json();
+            data = allWorkers.find((worker) => worker.email === user.email);
           }
-        } catch (error) {
-          console.error("Error fetching worker profile:", error);
         }
-      };
-      fetchWorkerProfile();
-    }
+
+        if (data) {
+          setWorkerProfile(data);
+          setWorkerRecord(data);
+          if (data.location) {
+            setManualCity(data.location);
+            setWorkerLocation((prev) => ({
+              ...prev,
+              city: data.location,
+              country: "India",
+            }));
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching worker profile:", error);
+      }
+    };
+
+    fetchWorkerProfile();
   }, [user]);
 
   // Fetch assigned problems
   const fetchAssignedProblems = async () => {
-    if (!user) return;
+    if (!workerId) return;
     try {
-      const res = await fetch(`${API_BASE_URL}/api/problems/worker/${user.id || user._id}`);
+      const res = await fetch(`${API_BASE_URL}/api/problems/worker/${workerId}`);
       if (res.ok) {
         const problems = await res.json();
         setAssignedProblems(problems);
@@ -176,7 +212,7 @@ export default function WorkerDashboard() {
 
   useEffect(() => {
     fetchAssignedProblems();
-  }, [user]);
+  }, [workerId]);
 
   // Handle Online Toggle
   const handleToggleOnline = async () => {
@@ -466,17 +502,26 @@ export default function WorkerDashboard() {
 
   // Handle reject job
   async function handleRejectJob(problemId) {
+    if (!user) return false;
     try {
-      await fetch(`${API_BASE_URL}/api/problems/${problemId}/reject`, {
+      const res = await fetch(`${API_BASE_URL}/api/problems/${problemId}/reject`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workerId: user.id || user._id })
+        body: JSON.stringify({ workerId })
       });
-      alert("Job rejected successfully");
-      // Optionally, refresh the find work section, but since it's polling, it will update.
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || "Failed to reject job");
+      }
+
+      alert(data.message || "Job rejected successfully");
+      await fetchAssignedProblems();
+      setRefreshTrigger((prev) => !prev);
+      return true;
     } catch (err) {
       console.error("Failed to reject job:", err);
-      alert("Failed to reject job");
+      alert(err.message || "Failed to reject job");
+      return false;
     }
   }
 
@@ -553,38 +598,37 @@ export default function WorkerDashboard() {
   // Fraud report submit
   // Handle Job Acceptance
   const handleAcceptJob = async (jobId) => {
-    if (!user) return;
+    if (!user) return false;
     try {
       const res = await fetch(`${API_BASE_URL}/api/problems/${jobId}/accept`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workerId: user._id || user.id }) // Send worker ID
+        body: JSON.stringify({ workerId }) // Send worker ID
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message);
+      if (!res.ok) throw new Error(data.message || "Failed to accept job");
 
       alert("Job Accepted Successfully!");
-
-      // Refresh assigned problems to show in Job Management
       await fetchAssignedProblems();
+      setRefreshTrigger((prev) => !prev);
 
-      // Add to active jobs (history with pending status for now, or accepted)
       const newJob = {
         id: data.problem._id,
         title: data.problem.title,
-        customer: "Customer", // You might want to fetch user details or send them in response
+        customer: data.problem.createdBy?.name || "Customer",
         location: data.problem.location?.city || "Unknown",
-        status: "pending", // Start as pending until finished? Or "accepted"
+        status: "assigned",
         earned: 0,
-        amount: 0, // Needs to be negotiated or set
+        amount: data.problem.amount || 0,
         date: new Date().toISOString().split('T')[0]
       };
       setHistory(prev => [newJob, ...prev]);
-      setActiveSection("job"); // Switch to My Jobs view
-
+      setActiveSection("job");
+      return true;
     } catch (error) {
       console.error("Error accepting job:", error);
-      alert("Failed to accept job: " + error.message);
+      alert("Failed to accept job: " + (error.message || "Unknown error"));
+      return false;
     }
   };
 
@@ -677,6 +721,7 @@ export default function WorkerDashboard() {
           <JobSection
             problems={assignedProblems}
             onAcceptJob={handleAcceptJob}
+            onRejectJob={handleRejectJob}
             onCompleteJob={(problemId) => setOtpModal({ open: true, jobId: problemId })}
             fetchAssignedProblems={fetchAssignedProblems}
             workerLocation={workerLocation}
@@ -759,7 +804,7 @@ export default function WorkerDashboard() {
 }
 
 /* ------------------ Job Section ------------------ */
-function JobSection({ problems, onAcceptJob, onCompleteJob, fetchAssignedProblems, workerLocation }) {
+function JobSection({ problems, onAcceptJob, onRejectJob, onCompleteJob, fetchAssignedProblems, workerLocation }) {
   const requestedProblems = problems.filter((p) => p.status === 'requested');
   const activeProblems = problems.filter((p) => p.status === 'assigned' || p.status === 'in_progress');
   const completedProblems = problems.filter((p) => p.status === 'completed');
@@ -790,38 +835,22 @@ function JobSection({ problems, onAcceptJob, onCompleteJob, fetchAssignedProblem
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <button 
+                    <button
                       onClick={async () => {
-                        try {
-                          await fetch(`${API_BASE_URL}/api/problems/${problem._id}/accept`, {
-                            method: "PUT",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ workerId: problem.assignedTo })
-                          });
-                          alert("Job accepted!");
+                        const success = await onAcceptJob(problem._id);
+                        if (success) {
                           fetchAssignedProblems();
-                        } catch (err) {
-                          console.error("Failed to accept job:", err);
-                          alert("Failed to accept job");
                         }
                       }}
                       className="bg-green-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-600"
                     >
                       Accept
                     </button>
-                    <button 
+                    <button
                       onClick={async () => {
-                        try {
-                          await fetch(`${API_BASE_URL}/api/problems/${problem._id}/reject`, {
-                            method: "PUT",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ workerId: problem.assignedTo })
-                          });
-                          alert("Job rejected!");
+                        const success = await onRejectJob(problem._id);
+                        if (success) {
                           fetchAssignedProblems();
-                        } catch (err) {
-                          console.error("Failed to reject job:", err);
-                          alert("Failed to reject job");
                         }
                       }}
                       className="bg-red-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-red-600"
@@ -1229,7 +1258,12 @@ function FindWorkSection({ workerCategory, onAccept, onReject, refreshTrigger })
                   Accept Job
                 </button>
                 <button
-                  onClick={() => onReject(problem._id)}
+                  onClick={async () => {
+                    const success = await onReject(problem._id);
+                    if (success) {
+                      setProblems((prev) => prev.filter((p) => p._id !== problem._id));
+                    }
+                  }}
                   className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md font-medium shadow-sm transition transform active:scale-95"
                 >
                   Reject Job

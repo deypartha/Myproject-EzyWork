@@ -8,6 +8,7 @@ import Navbar from "./components/common/Navbar";
 import Worker from "./components/UI/worker/Worker";
 import WorkerDetails from "./components/UI/worker/WorkerDetails";
 import { ProtectedRoute, RoleProtectedRoute } from "./context/ProtectedRoute";
+import Payment from "./components/UI/payment/Payment";
 
 function App() {
   const navigate = useNavigate();
@@ -32,6 +33,7 @@ function App() {
               <div className="flex flex-col items-center px-6 md:px-16">
                 <Navbar />
                 <User />
+                <Payment />
               </div>
             </RoleProtectedRoute>
           }
