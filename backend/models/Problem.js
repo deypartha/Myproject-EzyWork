@@ -8,20 +8,39 @@ const problemSchema = new mongoose.Schema({
     latitude: Number,
     longitude: Number,
     city: String,
-    address: String
+    address: String,
   },
-  status: { 
-    type: String, 
-    enum: ["open", "requested", "assigned", "in_progress", "completed", "cancelled"], 
-    default: "open" 
+  status: {
+    type: String,
+    enum: [
+      "open",
+      "requested",
+      "assigned",
+      "in_progress",
+      "completed",
+      "cancelled",
+    ],
+    default: "open",
   },
-  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true,
+  },
   assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: "Worker" },
+  amount: { type: Number },
   otp: { type: String },
   paymentMethod: { type: String, enum: ["Pay Now", "Pay Later"] },
+  paymentStatus: {
+    type: String,
+    enum: ["pending", "completed", "failed"],
+    default: "pending",
+  },
+  paymentId: { type: String },
+  paymentDate: { type: Date },
   createdAt: { type: Date, default: Date.now },
   assignedAt: { type: Date },
-  completedAt: { type: Date }
+  completedAt: { type: Date },
 });
 
 export default mongoose.model("Problem", problemSchema);

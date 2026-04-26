@@ -33,6 +33,18 @@ function App() {
               <div className="flex flex-col items-center px-6 md:px-16">
                 <Navbar />
                 <User />
+              </div>
+            </RoleProtectedRoute>
+          }
+        />
+
+        {/* Protected Payment route */}
+        <Route
+          path="/payment"
+          element={
+            <RoleProtectedRoute allowedRoles={["user"]}>
+              <div className="flex flex-col items-center px-6 md:px-16">
+                <Navbar />
                 <Payment />
               </div>
             </RoleProtectedRoute>

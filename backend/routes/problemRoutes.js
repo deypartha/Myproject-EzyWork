@@ -1,5 +1,20 @@
 import express from "express";
-import { createProblem, getOpenProblems, requestWorker, acceptProblem, bookProblem, startProblem, completeProblem, getUserProblems, getWorkerProblems, getProblem, rejectProblem } from "../controllers/problemController.js";
+import {
+  createProblem,
+  getOpenProblems,
+  requestWorker,
+  acceptProblem,
+  bookProblem,
+  startProblem,
+  completeProblem,
+  getUserProblems,
+  getWorkerProblems,
+  getProblem,
+  rejectProblem,
+  markPaymentSuccess,
+  createPaymentOrder,
+  getPaymentConfig,
+} from "../controllers/problemController.js";
 
 const router = express.Router();
 
@@ -11,6 +26,9 @@ router.put("/:id/book", bookProblem);
 router.put("/:id/start", startProblem);
 router.put("/:id/complete", completeProblem);
 router.put("/:id/reject", rejectProblem);
+router.put("/:id/payment-success", markPaymentSuccess);
+router.post("/:id/payment-order", createPaymentOrder);
+router.get("/:id/payment-config", getPaymentConfig);
 router.get("/user/:userId", getUserProblems);
 router.get("/worker/:workerId", getWorkerProblems);
 router.get("/:id", getProblem);
