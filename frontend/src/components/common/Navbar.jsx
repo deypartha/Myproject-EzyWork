@@ -3,8 +3,6 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Menu, X, LogOut, User as UserIcon, Moon, History } from 'lucide-react';
-import Payment from '../UI/payment/Payment'
-
 function Navbar() {
   const navigate = useNavigate();
   const { user, logout, isAuthenticated } = useAuth();
@@ -59,9 +57,6 @@ function Navbar() {
     setIsAccountOpen(false);
   };
 
-  const pay = () => {
-    navigate("/payment")
-  }
 
   // Light mode removed; theme is fixed to dark.
 
@@ -77,7 +72,6 @@ function Navbar() {
             <button onClick={scrollToFeatures} className="hover:text-black transition-colors">
               Features
             </button>
-            <button onClick={pay} className='hover:text-black transition-colors'>Payment</button>
           </nav>
 
           {/* Color mode toggle removed - app uses dark mode only */}

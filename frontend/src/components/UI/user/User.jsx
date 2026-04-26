@@ -40,6 +40,15 @@ function User() {
   const [userProblems, setUserProblems] = useState([]);
   const [currentProblem, setCurrentProblem] = useState(null);
 
+  const parseAmount = (value) => {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value !== "string") return null;
+    const match = value.match(/\d+(?:\.\d+)?/);
+    if (!match) return null;
+    const parsed = Number(match[0]);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
   // Predefined FAQ
   const faqData = [
     {
@@ -125,15 +134,14 @@ function User() {
   const detectSkill = async (text) => {
     if (!text) return null;
     try {
-      // Expect a backend endpoint that calls Gemini/OpenAI with your API key.
-      const res = await fetch("/api/detect", {
+      // Backend detects with Gemini if configured, and falls back to keyword rules.
+      const res = await fetch(`${API_BASE_URL}/api/workers/detect-skill`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text }),
       });
       if (res.ok) {
         const json = await res.json();
-        // backend should return something like { skill: 'Plumber' }
         if (json?.skill) return json.skill;
       }
     } catch (e) {
@@ -182,14 +190,27 @@ function User() {
           }
         }
 
-        // 2. Fetch workers from database
-        let url = `${API_BASE_URL}/api/workers/all`;
-        if (skill) {
-          url = `${API_BASE_URL}/api/workers/type/${skill}`;
+        // 2. Fetch workers from database by full query (stronger matching than strict type)
+        let workers = [];
+        const searchRes = await fetch(`${API_BASE_URL}/api/workers/search?q=${encodeURIComponent(problem)}`);
+        if (searchRes.ok) {
+          const payload = await searchRes.json();
+          workers = payload?.workers || [];
+          if (!skill && payload?.detectedSkill) {
+            setDetectedSkill(payload.detectedSkill);
+          }
         }
 
-        const response = await fetch(url);
-        const workers = await response.json();
+        // Fallback to previous flow if search endpoint fails
+        if (!Array.isArray(workers) || workers.length === 0) {
+          let url = `${API_BASE_URL}/api/workers/all`;
+          if (skill) {
+            url = `${API_BASE_URL}/api/workers/type/${encodeURIComponent(skill)}`;
+          }
+
+          const response = await fetch(url);
+          workers = await response.json();
+        }
 
         // Transform database workers to match the expected format
         const transformedWorkers = workers.map((worker) => ({
@@ -238,13 +259,18 @@ function User() {
   const handlePayment = async (method) => {
     const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
     setOtp(generatedOtp);
+    const fixedAmount = parseAmount(selectedWorker?.price);
 
     if (currentProblemId) {
       try {
         await fetch(`${API_BASE_URL}/api/problems/${currentProblemId}/book`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ otp: generatedOtp, paymentMethod: method })
+          body: JSON.stringify({
+            otp: generatedOtp,
+            paymentMethod: method,
+            amount: fixedAmount,
+          })
         });
       } catch (err) {
         console.error("Failed to update booking:", err);
@@ -262,6 +288,7 @@ function User() {
       workerEmail: selectedWorker.contact,
       dateTime: new Date().toLocaleString(),
       price: selectedWorker.price,
+      amount: fixedAmount,
       paymentMethod: method,
     };
 
@@ -573,10 +600,18 @@ function User() {
   // Initialize Socket
   useEffect(() => {
     socketRef.current = io(API_BASE_URL);
-    if (user && user.id) {
-      socketRef.current.emit("join-room", `user-${user.id}`);
-      console.log("Joined user room:", `user-${user.id}`);
+    if (user) {
+      const rooms = new Set();
+      if (user.id) rooms.add(`user-${user.id}`);
+      if (user._id) rooms.add(`user-${user._id}`);
+      if (user.email) rooms.add(`user-email-${user.email}`);
+
+      rooms.forEach((room) => {
+        socketRef.current.emit("join-room", room);
+        console.log("Joined user room:", room);
+      });
     }
+
     return () => {
       socketRef.current.disconnect();
     };
@@ -601,6 +636,29 @@ function User() {
       socketRef.current.off("request-accepted");
     };
   }, [currentProblemId]);
+
+  // Listen for OTP verification completion event from worker flow
+  useEffect(() => {
+    if (!socketRef.current) return;
+
+    const handleOtpVerified = (data) => {
+      console.log("OTP verified event received:", data);
+      alert(data?.message || "OTP verified successfully. Opening payment page...");
+      navigate("/payment", {
+        state: {
+          problem: data?.problem || currentProblem,
+          problemId: data?.problemId || currentProblemId,
+          source: "otp-verified",
+        },
+      });
+    };
+
+    socketRef.current.on("otp-verified", handleOtpVerified);
+
+    return () => {
+      socketRef.current.off("otp-verified", handleOtpVerified);
+    };
+  }, [navigate, currentProblem, currentProblemId]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-800 via-gray-800 to-indigo-900 py-8 px-4 md:px-8">
@@ -1308,8 +1366,9 @@ function User() {
             </div>
           </div>
         )}
-      </div>
+
     </div>
+  </div>
   );
 }
 

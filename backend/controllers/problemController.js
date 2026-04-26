@@ -1,5 +1,23 @@
 import Problem from "../models/Problem.js";
 import Worker from "../models/Worker.js";
+import User from "../models/User.js";
+import Razorpay from "razorpay";
+
+const parseAmount = (value) => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const match = value.match(/\d+(?:\.\d+)?/);
+  if (!match) return null;
+
+  const parsed = Number(match[0]);
+  return Number.isFinite(parsed) ? parsed : null;
+};
 
 export const createProblem = async (req, res) => {
   try {
@@ -130,7 +148,7 @@ export const acceptProblem = async (req, res) => {
 export const bookProblem = async (req, res) => {
   try {
     const { id } = req.params;
-    const { otp, paymentMethod } = req.body;
+    const { otp, paymentMethod, amount } = req.body;
 
     const problem = await Problem.findById(id);
     if (!problem) {
@@ -143,6 +161,10 @@ export const bookProblem = async (req, res) => {
 
     problem.otp = otp;
     problem.paymentMethod = paymentMethod;
+    const parsedAmount = parseAmount(amount);
+    if (parsedAmount !== null) {
+      problem.amount = parsedAmount;
+    }
     problem.status = "in_progress";
     await problem.save();
 
@@ -152,7 +174,7 @@ export const bookProblem = async (req, res) => {
   }
 };
 
-export const completeProblem = async (req, res) => {
+export const completeProblem = async (req, res, io) => {
   try {
     const { id } = req.params;
     const { otp } = req.body;
@@ -169,6 +191,33 @@ export const completeProblem = async (req, res) => {
     problem.status = "completed";
     problem.completedAt = new Date();
     await problem.save();
+
+    // Emit socket event to notify user that OTP is verified
+    if (req.io) {
+      const userId = problem.createdBy.toString();
+      const eventData = {
+        message: "OTP verified successfully! Payment page opening...",
+        problemId: id,
+        problem: problem,
+      };
+
+      // Emit to user room (by ID)
+      req.io.to(`user-${userId}`).emit("otp-verified", eventData);
+      console.log(`Emitted otp-verified to user room: user-${userId}`);
+
+      // Also try to get user email and emit to email-based room for redundancy
+      try {
+        const user = await User.findById(userId).select("email");
+        if (user?.email) {
+          req.io.to(`user-email-${user.email}`).emit("otp-verified", eventData);
+          console.log(
+            `Emitted otp-verified to user email room: user-email-${user.email}`,
+          );
+        }
+      } catch (err) {
+        console.warn("Could not emit to email room:", err.message);
+      }
+    }
 
     res.json({ message: "Problem completed successfully", problem });
   } catch (error) {
@@ -236,6 +285,163 @@ export const getProblem = async (req, res) => {
     res.json(problem);
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch problem" });
+  }
+};
+
+export const markPaymentSuccess = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { paymentId } = req.body;
+
+    const problem = await Problem.findById(id);
+    if (!problem) {
+      return res.status(404).json({ message: "Problem not found" });
+    }
+
+    problem.paymentStatus = "completed";
+    problem.paymentId = paymentId || problem.paymentId;
+    problem.paymentDate = new Date();
+    await problem.save();
+
+    return res.json({ message: "Payment marked as completed", problem });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to update payment status" });
+  }
+};
+
+export const createPaymentOrder = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const problem = await Problem.findById(id);
+    if (!problem) {
+      return res.status(404).json({ message: "Problem not found" });
+    }
+
+    const amountInRupees = parseAmount(problem.amount);
+    if (!amountInRupees || amountInRupees <= 0) {
+      return res.status(400).json({ message: "Payment amount is missing" });
+    }
+
+    const razorpayKeyId = process.env.RAZORPAY_KEY_ID?.trim();
+    const razorpayKeySecret = process.env.RAZORPAY_KEY_SECRET?.trim();
+
+    console.log("🔐 Razorpay Credentials Check:");
+    console.log(
+      "  Key ID present:",
+      !!razorpayKeyId,
+      `(length: ${razorpayKeyId?.length})`,
+    );
+    console.log(
+      "  Key Secret present:",
+      !!razorpayKeySecret,
+      `(length: ${razorpayKeySecret?.length})`,
+    );
+
+    if (!razorpayKeyId || !razorpayKeySecret) {
+      console.log("⚠️  Using MOCK payment mode (credentials missing)");
+      const mockOrderId = `order_mock_${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 9)}`;
+      return res.json({
+        orderId: mockOrderId,
+        amount: amountInRupees,
+        currency: "INR",
+        keyId: "pk_test_mock",
+        isMockMode: true,
+        problem,
+      });
+    }
+
+    const razorpay = new Razorpay({
+      key_id: razorpayKeyId,
+      key_secret: razorpayKeySecret,
+    });
+
+    console.log(
+      "💳 Creating Razorpay order with amount:",
+      Math.round(amountInRupees * 100),
+      "paise",
+    );
+
+    try {
+      const orderData = await razorpay.orders.create({
+        amount: Math.round(amountInRupees * 100),
+        currency: "INR",
+        receipt: `problem_${problem._id}`,
+        notes: {
+          problemId: String(problem._id),
+          title: problem.title,
+        },
+      });
+
+      console.log("✅ Order created successfully:", orderData.id);
+
+      return res.json({
+        orderId: orderData.id,
+        amount: amountInRupees,
+        currency: orderData.currency || "INR",
+        keyId: razorpayKeyId,
+        problem,
+      });
+    } catch (razorpayError) {
+      console.warn("⚠️  Razorpay failed, falling back to MOCK mode");
+      console.warn(
+        "  Error:",
+        razorpayError?.error?.description || razorpayError?.message,
+      );
+
+      // Fallback to mock mode if Razorpay auth fails
+      const mockOrderId = `order_mock_${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 9)}`;
+      return res.json({
+        orderId: mockOrderId,
+        amount: amountInRupees,
+        currency: "INR",
+        keyId: "pk_test_mock",
+        isMockMode: true,
+        problem,
+      });
+    }
+  } catch (error) {
+    console.error("❌ Failed to create payment order:");
+    console.error("  Error:", error?.message);
+
+    return res.status(500).json({
+      message: error?.message || "Failed to create payment order",
+    });
+  }
+};
+
+export const getPaymentConfig = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const problem = await Problem.findById(id);
+    if (!problem) {
+      return res.status(404).json({ message: "Problem not found" });
+    }
+
+    const amountInRupees = parseAmount(problem.amount);
+    if (!amountInRupees || amountInRupees <= 0) {
+      return res.status(400).json({ message: "Payment amount is missing" });
+    }
+
+    const razorpayKeyId = process.env.RAZORPAY_KEY_ID?.trim();
+    if (!razorpayKeyId) {
+      return res.status(500).json({ message: "Razorpay key id is missing" });
+    }
+
+    return res.json({
+      keyId: razorpayKeyId,
+      amount: amountInRupees,
+      currency: "INR",
+      problem,
+    });
+  } catch (error) {
+    console.error("Failed to get payment config:", error);
+    return res.status(500).json({ message: "Failed to get payment config" });
   }
 };
 

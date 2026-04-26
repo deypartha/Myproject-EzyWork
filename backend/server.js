@@ -2,6 +2,8 @@ import express from "express";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 import cors from "cors";
+import path from "path";
+import { fileURLToPath } from "url";
 import authRoutes from "./routes/authRoutes.js";
 import translateRoutes from "./routes/translateRoutes.js";
 import workerRoutes from "./routes/workerRoutes.js";
@@ -11,19 +13,22 @@ import { Server } from "socket.io";
 import problemRoutes from "./routes/problemRoutes.js";
 
 // Ensure .env is loaded even if server is started from the project root
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.join(__dirname, ".env") });
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
     origin: "*", // Update this in production
-    methods: ["GET", "POST"]
-  }
+    methods: ["GET", "POST"],
+  },
 });
 
 // Prefer environment values, but allow defaults for local development.
 const PORT = process.env.PORT || 3000;
-const MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/ezywork_db";
+const MONGO_URI =
+  process.env.MONGO_URI || "mongodb://127.0.0.1:27017/ezywork_db";
 
 app.use(cors());
 app.use(express.json());
@@ -43,11 +48,11 @@ io.on("connection", (socket) => {
     socket.join(room);
     console.log(`Socket ${socket.id} joined room: ${room}`);
   });
-  
+
   // Worker leaves room
   socket.on("leave-room", (room) => {
-      socket.leave(room);
-      console.log(`Socket ${socket.id} left room: ${room}`);
+    socket.leave(room);
+    console.log(`Socket ${socket.id} left room: ${room}`);
   });
 
   socket.on("disconnect", () => {
@@ -56,7 +61,7 @@ io.on("connection", (socket) => {
 });
 
 if (MONGO_URI) {
-  console.log("Mongo: connecting to", MONGO_URI.split('@').pop());
+  console.log("Mongo: connecting to", MONGO_URI.split("@").pop());
   mongoose
     .connect(MONGO_URI, { serverSelectionTimeoutMS: 10000 })
     .then(() => console.log("MongoDB connected"))
@@ -65,7 +70,9 @@ if (MONGO_URI) {
       // don't exit the process; allow the server to run for frontend/dev work
     });
 } else {
-  console.warn("MONGO_URI not provided — skipping MongoDB connection (development mode)");
+  console.warn(
+    "MONGO_URI not provided — skipping MongoDB connection (development mode)",
+  );
 }
 
 app.use("/api/auth", authRoutes);
