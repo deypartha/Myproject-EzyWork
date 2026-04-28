@@ -305,6 +305,19 @@ const Sign = () => {
             </button>
           </p>
         </div>
+
+        {/* Admin Login Link */}
+        <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 text-center">
+          <p className="text-gray-600 dark:text-gray-400 text-sm">
+            Are you an admin?{" "}
+            <button
+              onClick={() => navigate("/admin/login")}
+              className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium transition-colors"
+            >
+              Admin Portal
+            </button>
+          </p>
+        </div>
       </div>
     </div>
   );

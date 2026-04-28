@@ -661,7 +661,7 @@ function User() {
   }, [navigate, currentProblem, currentProblemId]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-800 via-gray-800 to-indigo-900 py-8 px-4 md:px-8">
+    <div className="min-h-screen bg-linear-to-br from-slate-800 via-gray-800 to-indigo-900 py-8 px-4 md:px-8">
       <div className="max-w-6xl mx-auto">
         <button onClick={()=>navigate('/')} className="mb-4 bg-gray-600 p-5 text-blue-500 hover:text-blue-700 font-medium cursor-pointer">Back to Home</button>
         {/* Step Progress Indicator */}
@@ -671,8 +671,7 @@ function User() {
               { num: 1, label: "Describe Problem" },
               { num: 2, label: "Select Worker" },
               { num: 3, label: "Wait for Acceptance" },
-              { num: 4, label: "Payment" },
-              { num: 5, label: "Booking Dashboard" }
+              { num: 4, label: "Payment" }
             ].map((s, idx) => (
               <div key={s.num} className="flex items-center">
                 <div className="flex flex-col items-center">
@@ -833,7 +832,7 @@ function User() {
               <button
                 onClick={handleProblemSubmit}
                 disabled={!problem.trim()}
-                className="w-full bg-gradient-to-r from-blue-600 to-blue-700 text-white px-8 py-4 rounded-xl hover:from-blue-700 hover:to-blue-800 font-semibold text-lg shadow-lg hover:shadow-xl transition-all disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed"
+                className="w-full bg-linear-to-r from-blue-600 to-blue-700 text-white px-8 py-4 rounded-xl hover:from-blue-700 hover:to-blue-800 font-semibold text-lg shadow-lg hover:shadow-xl transition-all disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed"
               >
                 Find Workers →
               </button>
@@ -1133,7 +1132,7 @@ function User() {
                 </div>
               </div>
               <div className="flex items-start gap-3 bg-yellow-50 border border-yellow-300 rounded-lg p-4 text-left">
-                <FaExclamationTriangle className="text-yellow-600 text-xl mt-0.5 flex-shrink-0" />
+                <FaExclamationTriangle className="text-yellow-600 text-xl mt-0.5 shrink-0" />
                 <div>
                   <p className="text-sm font-semibold text-gray-800 mb-1">Important Security Notice</p>
                   <p className="text-sm text-gray-700">
@@ -1260,7 +1259,7 @@ function User() {
         {/* Floating Help Button */}
         <button
           onClick={() => setHelpModalOpen(true)}
-          className="fixed bottom-6 right-6 w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-full shadow-2xl hover:shadow-blue-500/50 hover:scale-110 transition-all duration-300 flex items-center justify-center z-50 group"
+          className="fixed bottom-6 right-6 w-16 h-16 bg-linear-to-br from-blue-500 to-blue-600 text-white rounded-full shadow-2xl hover:shadow-blue-500/50 hover:scale-110 transition-all duration-300 flex items-center justify-center z-50 group"
           title="Help & Support"
         >
           <FaQuestionCircle className="text-2xl group-hover:rotate-12 transition-transform" />
@@ -1271,7 +1270,7 @@ function User() {
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 px-4">
             <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full h-[600px] flex flex-col transform transition-all">
               {/* Header */}
-              <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-4 rounded-t-2xl relative flex items-center justify-between">
+              <div className="bg-linear-to-r from-blue-500 to-blue-600 text-white p-4 rounded-t-2xl relative flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
                     <FaComments className="text-xl" />
@@ -1297,7 +1296,7 @@ function User() {
                 {/* Welcome Message */}
                 {chatMessages.length === 0 && (
                   <div className="flex gap-2 items-start">
-                    <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0">
+                    <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center shrink-0">
                       <FaComments className="text-white text-sm" />
                     </div>
                     <div className="bg-white rounded-2xl rounded-tl-none p-3 shadow-sm max-w-[80%]">
@@ -1313,7 +1312,7 @@ function User() {
                 {chatMessages.map((msg, index) => (
                   <div key={index} className={`flex gap-2 items-start ${msg.type === 'user' ? 'flex-row-reverse' : ''}`}>
                     {msg.type === 'bot' && (
-                      <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0">
+                      <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center shrink-0">
                         <FaComments className="text-white text-sm" />
                       </div>
                     )}
@@ -1342,7 +1341,7 @@ function User() {
                         <button
                           key={index}
                           onClick={() => handleQuestionClick(faq)}
-                          className="w-full text-left px-3 py-2.5 text-sm bg-blue-50 hover:bg-blue-100 text-gray-700 rounded-lg transition-colors border border-blue-100 hover:border-blue-200"
+                          className="w-full text-left px-3 py-2.5 text-sm bg-blue-500 hover:bg-green-400 text-gray-700 rounded-lg transition-colors border border-blue-100 hover:border-blue-200"
                         >
                           💬 {faq.question}
                         </button>

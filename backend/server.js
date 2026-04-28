@@ -7,6 +7,7 @@ import { fileURLToPath } from "url";
 import authRoutes from "./routes/authRoutes.js";
 import translateRoutes from "./routes/translateRoutes.js";
 import workerRoutes from "./routes/workerRoutes.js";
+import adminRoutes from "./routes/adminRoutes.js";
 
 import { createServer } from "http";
 import { Server } from "socket.io";
@@ -79,5 +80,6 @@ app.use("/api/auth", authRoutes);
 app.use("/api", translateRoutes);
 app.use("/api/workers", workerRoutes);
 app.use("/api/problems", problemRoutes);
+app.use("/api/admin", adminRoutes);
 
 httpServer.listen(PORT, () => console.log(`Server running on port ${PORT}`));
