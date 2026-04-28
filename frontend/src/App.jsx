@@ -3,6 +3,8 @@ import { Routes, Route } from "react-router-dom";
 import "./App.css";
 import WorkerImage from '/public/Photos/Worker.png'
 import Sign from "./components/UI/auth/Sign";
+import AdminLogin from "./components/UI/auth/AdminLogin";
+import AdminDashboard from "./components/UI/admin/AdminDashboard";
 import User from "./components/UI/user/User";
 import Navbar from "./components/common/Navbar";
 import Worker from "./components/UI/worker/Worker";
@@ -24,6 +26,17 @@ function App() {
       <Routes>
         {/* Sign page - no navbar */}
         <Route path="/sign" element={<Sign />} />
+
+        {/* Admin routes */}
+        <Route path="/admin/login" element={<AdminLogin />} />
+        <Route
+          path="/admin/dashboard"
+          element={
+            <RoleProtectedRoute allowedRoles={["admin"]}>
+              <AdminDashboard />
+            </RoleProtectedRoute>
+          }
+        />
 
         {/* Protected User route */}
         <Route
