@@ -14,6 +14,15 @@ const SKILL_ALIASES = {
     "water line",
     "toilet",
     "faucet",
+    "ac",
+    "air conditioner",
+    "air conditioning",
+    "hvac",
+    "cooling",
+    "not cooling",
+    "ac repair",
+    "ac service",
+    "ac not working",
   ],
   Electrician: [
     "electrician",
@@ -44,6 +53,35 @@ const SKILL_ALIASES = {
     "door repair",
     "table repair",
   ],
+  Welder: [
+    "welder",
+    "welding",
+    "metal work",
+    "gate repair",
+    "grill repair",
+    "iron work",
+    "steel work",
+  ],
+  Mechanic: [
+    "mechanic",
+    "car repair",
+    "bike repair",
+    "vehicle repair",
+    "engine",
+    "car not starting",
+    "not starting",
+    "breakdown",
+    "puncture",
+  ],
+  Driver: [
+    "driver",
+    "driving",
+    "chauffeur",
+    "pickup",
+    "drop",
+    "transport",
+    "ride",
+  ],
 };
 
 const escapeRegExp = (value = "") =>
@@ -61,6 +99,21 @@ const normalizeSkillName = (skill = "") => {
   return skill;
 };
 
+const AC_PLUMBER_HINTS = [
+  "ac",
+  "a/c",
+  "air conditioner",
+  "air conditioning",
+  "hvac",
+  "cooling",
+  "not cooling",
+  "ac not working",
+  "ac issue",
+  "ac problem",
+  "ac repair",
+  "ac service",
+];
+
 const detectSkillFromKeywords = (text = "") => {
   const t = String(text).toLowerCase();
   if (!t.trim()) return null;
@@ -74,12 +127,21 @@ const detectSkillFromKeywords = (text = "") => {
   return null;
 };
 
+const applySkillOverrides = (query = "", skill = null) => {
+  const q = String(query).toLowerCase();
+  if (AC_PLUMBER_HINTS.some((hint) => q.includes(hint))) {
+    return "Plumber";
+  }
+
+  return skill;
+};
+
 const detectSkillWithGemini = async (text = "") => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || !text?.trim()) return null;
 
   const allowedSkills = Object.keys(SKILL_ALIASES).join(", ");
-  const prompt = `Classify this user home-service request into exactly one skill from this list: ${allowedSkills}. If none match, return "Unknown" only. Request: "${text}".`;
+  const prompt = `Classify this user home-service request into exactly one skill from this list: ${allowedSkills}. Reply with only one label from the list and nothing else. If none match, reply exactly: Unknown. Request: "${text}".`;
 
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
@@ -104,8 +166,10 @@ const detectSkillWithGemini = async (text = "") => {
   const output = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
   if (!output) return null;
 
-  const normalized = normalizeSkillName(output);
-  return normalized && normalized !== "Unknown" ? normalized : null;
+  const cleanedOutput = output.replace(/[^a-zA-Z\s]/g, " ").trim();
+  const normalized = normalizeSkillName(cleanedOutput);
+  if (!normalized || normalized === "Unknown") return null;
+  return Object.keys(SKILL_ALIASES).includes(normalized) ? normalized : null;
 };
 
 const getSkillRegexList = (skill = "") => {
@@ -135,12 +199,10 @@ const login = async (req, res) => {
     const token = crypto.randomBytes(16).toString("hex");
     res.status(httpStatus.OK).json({ message: "Login successful", token });
   } catch (error) {
-    res
-      .status(httpStatus.INTERNAL_SERVER_ERROR)
-      .json({
-        message: "An error occurred during login",
-        error: error.message,
-      });
+    res.status(httpStatus.INTERNAL_SERVER_ERROR).json({
+      message: "An error occurred during login",
+      error: error.message,
+    });
   }
 };
 
@@ -165,12 +227,10 @@ const register = async (req, res) => {
       .status(httpStatus.CREATED)
       .json({ message: "Worker registered successfully" });
   } catch (error) {
-    res
-      .status(httpStatus.INTERNAL_SERVER_ERROR)
-      .json({
-        message: "An error occurred during registration",
-        error: error.message,
-      });
+    res.status(httpStatus.INTERNAL_SERVER_ERROR).json({
+      message: "An error occurred during registration",
+      error: error.message,
+    });
   }
 };
 
@@ -216,12 +276,10 @@ const addWorkerDetails = async (req, res) => {
       .status(httpStatus.OK)
       .json({ message: "Worker details saved successfully", worker });
   } catch (error) {
-    res
-      .status(httpStatus.INTERNAL_SERVER_ERROR)
-      .json({
-        message: "An error occurred while updating worker details",
-        error: error.message,
-      });
+    res.status(httpStatus.INTERNAL_SERVER_ERROR).json({
+      message: "An error occurred while updating worker details",
+      error: error.message,
+    });
   }
 };
 
@@ -231,12 +289,10 @@ const getAllWorkers = async (req, res) => {
     const workers = await Worker.find().select("-password");
     res.status(httpStatus.OK).json(workers);
   } catch (error) {
-    res
-      .status(httpStatus.INTERNAL_SERVER_ERROR)
-      .json({
-        message: "An error occurred while fetching workers",
-        error: error.message,
-      });
+    res.status(httpStatus.INTERNAL_SERVER_ERROR).json({
+      message: "An error occurred while fetching workers",
+      error: error.message,
+    });
   }
 };
 
@@ -254,12 +310,10 @@ const getWorkersByType = async (req, res) => {
     }).select("-password");
     res.status(httpStatus.OK).json(workers);
   } catch (error) {
-    res
-      .status(httpStatus.INTERNAL_SERVER_ERROR)
-      .json({
-        message: "An error occurred while fetching workers",
-        error: error.message,
-      });
+    res.status(httpStatus.INTERNAL_SERVER_ERROR).json({
+      message: "An error occurred while fetching workers",
+      error: error.message,
+    });
   }
 };
 
@@ -277,6 +331,7 @@ const detectSkill = async (req, res) => {
     if (!skill) {
       skill = detectSkillFromKeywords(text);
     }
+    skill = applySkillOverrides(text, skill);
 
     return res.status(httpStatus.OK).json({ skill });
   } catch (error) {
@@ -300,6 +355,7 @@ const searchWorkers = async (req, res) => {
     if (!detectedSkill) {
       detectedSkill = detectSkillFromKeywords(query);
     }
+    detectedSkill = applySkillOverrides(query, detectedSkill);
 
     let workers = [];
 
@@ -340,12 +396,10 @@ const getWorkerById = async (req, res) => {
     }
     res.status(httpStatus.OK).json(worker);
   } catch (error) {
-    res
-      .status(httpStatus.INTERNAL_SERVER_ERROR)
-      .json({
-        message: "An error occurred while fetching worker",
-        error: error.message,
-      });
+    res.status(httpStatus.INTERNAL_SERVER_ERROR).json({
+      message: "An error occurred while fetching worker",
+      error: error.message,
+    });
   }
 };
 
@@ -397,12 +451,10 @@ const updateWorker = async (req, res) => {
       .status(httpStatus.OK)
       .json({ message: "Worker updated successfully", worker });
   } catch (error) {
-    res
-      .status(httpStatus.INTERNAL_SERVER_ERROR)
-      .json({
-        message: "An error occurred while updating worker",
-        error: error.message,
-      });
+    res.status(httpStatus.INTERNAL_SERVER_ERROR).json({
+      message: "An error occurred while updating worker",
+      error: error.message,
+    });
   }
 };
 
