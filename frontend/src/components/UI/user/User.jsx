@@ -160,84 +160,219 @@ function User() {
   };
 
   const handleProblemSubmit = () => {
-    (async () => {
-      try {
-        const skill = await detectSkill(problem);
-        setDetectedSkill(skill);
+  (async () => {
+    try {
+      const skill = await detectSkill(problem);
+      setDetectedSkill(skill);
 
-        // 1. Create Problem in Backend (Triggers Socket Broadcast)
-        let createdProblem = null;
-        if (user) {
-          try {
-            const res = await fetch(`${API_BASE_URL}/api/problems/create`, {
+      // ==========================
+      // Create Problem in Backend
+      // ==========================
+
+      let createdProblem = null;
+
+      if (user) {
+        try {
+          const res = await fetch(
+            `${API_BASE_URL}/api/problems/create`,
+            {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: {
+                "Content-Type": "application/json"
+              },
               body: JSON.stringify({
-                title: problem.substring(0, 50) + "...", // Short title
+                title: problem.substring(0, 50) + "...",
                 description: problem,
                 category: skill || "General",
-                createdBy: user.id || user._id, // Assuming user object has ID
-                location: { city: "Unknown" } // Placeholder
+                createdBy: user.id || user._id,
+                location: {
+                  city: "Unknown"
+                }
               })
-            });
-            if (res.ok) {
-              createdProblem = await res.json();
+            }
+          );
+
+          if (!res.ok) {
+            const errorText = await res.text();
+            console.log(
+              "Problem creation error:",
+              errorText
+            );
+          } else {
+            createdProblem = await res.json();
+
+            if (createdProblem?._id) {
               setCurrentProblemId(createdProblem._id);
             }
-          } catch (err) {
-            console.error("Failed to broadcast problem:", err);
-            // Continue anyway to show list
           }
+        } catch (err) {
+          console.error(
+            "Failed to create problem:",
+            err
+          );
         }
+      }
 
-        // 2. Fetch workers from database by full query (stronger matching than strict type)
-        let workers = [];
-        const searchRes = await fetch(`${API_BASE_URL}/api/workers/search?q=${encodeURIComponent(problem)}`);
-        if (searchRes.ok) {
+      // ==========================
+      // Search Workers
+      // ==========================
+
+      let workers = [];
+
+      try {
+        const searchRes = await fetch(
+          `${API_BASE_URL}/api/workers/search?q=${encodeURIComponent(problem)}`
+        );
+
+        if (!searchRes.ok) {
+          const errorText = await searchRes.text();
+
+          console.log(
+            "Search API Error:",
+            errorText
+          );
+        } else {
           const payload = await searchRes.json();
-          workers = payload?.workers || [];
+
+          workers = Array.isArray(payload?.workers)
+            ? payload.workers
+            : [];
+
           if (!skill && payload?.detectedSkill) {
-            setDetectedSkill(payload.detectedSkill);
+            setDetectedSkill(
+              payload.detectedSkill
+            );
           }
         }
+      } catch (err) {
+        console.log(
+          "Search request failed:",
+          err
+        );
+      }
 
-        // Fallback to previous flow if search endpoint fails or returns empty
-        if (!Array.isArray(workers) || workers.length === 0) {
+      // ==========================
+      // Fallback API
+      // ==========================
+
+      if (workers.length === 0) {
+        try {
           let url = `${API_BASE_URL}/api/workers/all`;
+
           if (skill) {
-            url = `${API_BASE_URL}/api/workers/type/${encodeURIComponent(skill)}`;
+            url = `${API_BASE_URL}/api/workers/type/${encodeURIComponent(
+              skill
+            )}`;
           }
 
           const response = await fetch(url);
-          workers = await response.json();
-        }
 
-        // Transform database workers to match the expected format
-        const transformedWorkers = workers.map((worker) => ({
+          if (!response.ok) {
+            const errorText =
+              await response.text();
+
+            console.log(
+              "Fallback API Error:",
+              errorText
+            );
+
+            throw new Error(
+              `HTTP Error ${response.status}`
+            );
+          }
+
+          const data =
+            await response.json();
+
+          workers = Array.isArray(data)
+            ? data
+            : data?.workers || [];
+        } catch (err) {
+          console.log(
+            "Fallback failed:",
+            err
+          );
+
+          workers = [];
+        }
+      }
+
+      // ==========================
+      // Final Safety Check
+      // ==========================
+
+      if (!Array.isArray(workers)) {
+        console.log(
+          "Invalid workers data:",
+          workers
+        );
+
+        workers = [];
+      }
+
+      // ==========================
+      // Transform Worker Data
+      // ==========================
+
+      const transformedWorkers =
+        workers.map((worker) => ({
           id: worker._id,
-          name: worker.fullName || worker.name,
-          skill: worker.typeOfWork && worker.typeOfWork[0] ? worker.typeOfWork[0] : "General",
-          rating: 4.5, // Default rating (you can add this to your model later)
-          distance: "N/A", // Can calculate based on location later
-          price: "$40 - $60", // Default price (you can add this to your model later)
-          contact: worker.mobileNumber || worker.number,
-          location: worker.location || "Unknown",
+
+          name:
+            worker.fullName ||
+            worker.name ||
+            "Unknown",
+
+          skill:
+            worker.typeOfWork?.[0] ||
+            "General",
+
+          rating: 4.5,
+
+          distance: "N/A",
+
+          price: "$40 - $60",
+
+          contact:
+            worker.mobileNumber ||
+            worker.number ||
+            "N/A",
+
+          location:
+            worker.location ||
+            "Unknown",
+
           image: null,
-          email: worker.email,
-          yearsOfExperience: worker.yearsOfExperience || 0,
-          allSkills: worker.typeOfWork || []
+
+          email:
+            worker.email ||
+            "N/A",
+
+          yearsOfExperience:
+            worker.yearsOfExperience || 0,
+
+          allSkills:
+            worker.typeOfWork || []
         }));
 
-        setWorkerSuggestions(transformedWorkers);
-        setStep(2);
+      setWorkerSuggestions(
+        transformedWorkers
+      );
 
-      } catch (error) {
-        console.error("Error in handleProblemSubmit:", error);
-        alert("Failed to process problem. Please try again.");
-      }
-    })();
-  };
+      setStep(2);
 
+    } catch (error) {
+      console.error(
+        "Error in handleProblemSubmit:",
+        error
+      );
+
+      alert(
+        "Failed to process problem. Please try again."
+      );
+    }
+  })();
+};
   const handleWorkerSelect = async (worker) => {
     setSelectedWorker(worker);
     if (currentProblemId) {
