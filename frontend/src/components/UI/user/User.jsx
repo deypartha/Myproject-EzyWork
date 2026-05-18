@@ -201,7 +201,7 @@ function User() {
           }
         }
 
-        // Fallback to previous flow if search endpoint fails
+        // Fallback to previous flow if search endpoint fails or returns empty
         if (!Array.isArray(workers) || workers.length === 0) {
           let url = `${API_BASE_URL}/api/workers/all`;
           if (skill) {

@@ -1,0 +1,15 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "gemini-key-check",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"Set-Location \"backend\"; $keyLine = Get-Content .env | Where-Object { $_ -match '^GEMINI_API_KEY=' } | Select-Object -First 1; if (-not $keyLine) { Write-Output 'NO_KEY_IN_ENV'; exit 1 }; $key = $keyLine.Split('=',2)[1].Trim(); $uri = \"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$key\"; $jsonBody = '{\"contents\":[{\"parts\":[{\"text\":\"Reply with exactly: OK\"}]}],\"generationConfig\":{\"temperature\":0,\"maxOutputTokens\":5}}'; try { $resp = Invoke-RestMethod -Method Post -Uri $uri -ContentType 'application/json' -Body $jsonBody; Write-Output 'GEMINI_STATUS OK'; Write-Output (\"MODEL_TEXT \" + ($resp.candidates[0].content.parts[0].text)); } catch { Write-Output 'GEMINI_STATUS FAIL'; Write-Output $_.Exception.Message; if ($_.ErrorDetails.Message) { Write-Output $_.ErrorDetails.Message }; exit 2 }"
+			]
+		}
+	]
+}
