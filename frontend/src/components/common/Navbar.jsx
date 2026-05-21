@@ -62,7 +62,7 @@ function Navbar() {
 
   return (
     <div className="w-full">
-      <header className={`w-full flex justify-between items-center py-6 px-8 max-w-7xl mx-auto transition-all ${showBookingHistory ? 'blur-sm pointer-events-none' : ''}`}>
+      <header className={`w-full flex flex-wrap items-center justify-between gap-4 py-6 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto transition-all ${showBookingHistory ? 'blur-sm pointer-events-none' : ''}`}>
         <a href="/" className="shrink-0">
           <h1 className="text-2xl font-bold text-[#0b2545]">EzyWork</h1>
         </a>
@@ -148,7 +148,7 @@ function Navbar() {
 
       {/* Mobile menu */}
       {isMenuOpen && (
-        <div className="md:hidden bg-white border-t border-gray-200 px-8 py-4 space-y-4">
+        <div className="md:hidden bg-white border-t border-gray-200 px-4 sm:px-6 py-4 space-y-4">
           <button
             onClick={scrollToFeatures}
             className="block w-full text-left text-gray-700 hover:text-black py-2 transition-colors"

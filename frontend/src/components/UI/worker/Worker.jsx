@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from "react"; // Added useRef
+import React, { useState, useEffect, useRef } from "react"; // Added useRef
 import { io } from "socket.io-client"; // Added socket.io-client
 import { useAuth } from "../../../context/AuthContext"; // Added useAuth
 import API_BASE_URL from "../../../config/api";
@@ -33,58 +33,68 @@ import {
 } from "recharts";
 import { validOtp } from "../../../utils/otp.validator";
 
-// --- Sample data ---
-const performanceWeekly = [
-  { day: "Mon", jobs: 10, earnings: 200 },
-  { day: "Tue", jobs: 12, earnings: 260 },
-  { day: "Wed", jobs: 8, earnings: 180 },
-  { day: "Thu", jobs: 14, earnings: 320 },
-  { day: "Fri", jobs: 9, earnings: 220 },
-  { day: "Sat", jobs: 6, earnings: 140 },
-  { day: "Sun", jobs: 4, earnings: 100 },
-];
-const performanceMonthly = Array.from({ length: 12 }).map((_, i) => ({
-  month: `M${i + 1}`,
-  jobs: Math.round(60 + Math.random() * 80),
-  earnings: Math.round(1200 + Math.random() * 3000),
-}));
+const STATUS_COLORS = {
+  open: "#64748b",
+  requested: "#f59e0b",
+  assigned: "#3b82f6",
+  in_progress: "#8b5cf6",
+  completed: "#10b981",
+  cancelled: "#ef4444",
+};
 
-const pieData = [
-  { name: "Electrical", value: 35 },
-  { name: "Plumbing", value: 25 },
-  { name: "Cleaning", value: 20 },
-  { name: "Painting", value: 20 },
-];
-const COLORS = ["#10b981", "#6366f1", "#f59e0b", "#ef4444"];
+const STATUS_LABELS = {
+  open: "Open",
+  requested: "Requested",
+  assigned: "Assigned",
+  in_progress: "In progress",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
 
-// --- Mock job history ---
-const initialHistory = [
-  {
-    id: "job_001",
-    title: "AC Repair",
-    customer: "Ravi Kumar",
-    location: "Delhi",
-    status: "completed",
-    earned: 200,
-    amount: 200,
-    date: "2025-11-10",
-  },
-  {
-    id: "job_002",
-    title: "Pipe Leakage",
-    customer: "Anita Sharma",
-    location: "Gurgaon",
-    status: "pending",
-    earned: 0,
-    amount: 350,
-    date: "2025-11-11",
-  },
-];
+const CATEGORY_COLORS = ["#10b981", "#6366f1", "#f59e0b", "#ef4444", "#14b8a6", "#0ea5e9"];
+
+const formatDateTime = (value) => {
+  if (!value) return "Not set";
+  return new Date(value).toLocaleString();
+};
+
+const buildStatusData = (jobs = []) => {
+  const counts = {
+    open: 0,
+    requested: 0,
+    assigned: 0,
+    in_progress: 0,
+    completed: 0,
+    cancelled: 0,
+  };
+
+  jobs.forEach((job) => {
+    if (counts[job.status] !== undefined) {
+      counts[job.status] += 1;
+    }
+  });
+
+  return Object.keys(counts).map((status) => ({
+    name: STATUS_LABELS[status],
+    value: counts[status],
+    fill: STATUS_COLORS[status],
+  }));
+};
+
+const buildCategoryData = (jobs = []) => {
+  const counts = jobs.reduce((acc, job) => {
+    const category = job.category || job.title || "Unknown";
+    acc[category] = (acc[category] || 0) + 1;
+    return acc;
+  }, {});
+
+  return Object.entries(counts).map(([name, value]) => ({ name, value }));
+};
 
 // --- Utility small components ---
-function Badge({ children }) {
+function Badge({ children, className = "" }) {
   return (
-    <span className="inline-block bg-gray-100 text-gray-800 px-2 py-0.5 rounded-full text-xs">
+    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${className || "bg-gray-100 text-gray-800"}`}>
       {children}
     </span>
   );
@@ -94,14 +104,13 @@ function Badge({ children }) {
 export default function WorkerDashboard() {
   const [activeSection, setActiveSection] = useState("job");
   const [online, setOnline] = useState(false);
-  const [history, setHistory] = useState(initialHistory);
+  const [history, setHistory] = useState([]);
   const [otpModal, setOtpModal] = useState({ open: false, jobId: null });
   const [paymentModal, setPaymentModal] = useState({ open: false, jobId: null });
   const [paymentSuccess, setPaymentSuccess] = useState({ open: false, message: "" });
   const [withdrawModalOpen, setWithdrawModalOpen] = useState(false);
   const [upiId, setUpiId] = useState("");
   const [fraudReportOpen, setFraudReportOpen] = useState(false);
-  const [performanceRange, setPerformanceRange] = useState("weekly");
   const [walletBalance, setWalletBalance] = useState(1230);
   const [workerLocation, setWorkerLocation] = useState({
     latitude: null,
@@ -116,7 +125,6 @@ export default function WorkerDashboard() {
   const [workerRecord, setWorkerRecord] = useState(null); // Actual worker document reference
   const socketRef = useRef(null); // Socket reference
   const [assignedProblems, setAssignedProblems] = useState([]);
-  const refreshFindWorkRef = useRef(null); // Ref to trigger find work refresh
   const [refreshTrigger, setRefreshTrigger] = useState(false); // Trigger FindWorkSection refresh
   const workerId = workerRecord?._id || user?.id || user?._id;
 
@@ -204,6 +212,7 @@ export default function WorkerDashboard() {
       if (res.ok) {
         const problems = await res.json();
         setAssignedProblems(problems);
+        setHistory(problems);
       }
     } catch (err) {
       console.error("Failed to fetch assigned problems:", err);
@@ -278,21 +287,7 @@ export default function WorkerDashboard() {
 
       // Trigger FindWorkSection refresh by toggling refreshTrigger
       setRefreshTrigger(prev => !prev);
-
-      // Add to history (or a new 'availableJobs' list)
-      // Mapping problem model to history model
-      const newJob = {
-        id: problem._id,
-        title: problem.title,
-        customer: "New Customer", // Name isn't in problem yet, maybe fetch or just show generic
-        location: problem.location?.city || "Unknown",
-        status: "pending",
-        earned: 0,
-        amount: 0, // Not set in problem yet
-        date: new Date().toISOString().split('T')[0]
-      };
-
-      setHistory(prev => [newJob, ...prev]);
+      fetchAssignedProblems();
     });
 
     return () => {
@@ -310,6 +305,7 @@ export default function WorkerDashboard() {
       
       // Refresh assigned problems to show the request
       fetchAssignedProblems();
+      setRefreshTrigger((prev) => !prev);
     });
 
     return () => {
@@ -517,6 +513,7 @@ export default function WorkerDashboard() {
       alert(data.message || "Job rejected successfully");
       await fetchAssignedProblems();
       setRefreshTrigger((prev) => !prev);
+      setHistory((prev) => prev.filter((problem) => problem._id !== problemId));
       return true;
     } catch (err) {
       console.error("Failed to reject job:", err);
@@ -547,6 +544,7 @@ export default function WorkerDashboard() {
         const data = await res.json();
         alert("Job completed successfully! Both you and the customer have been notified.");
         fetchAssignedProblems();
+        setRefreshTrigger((prev) => !prev);
       } else {
         const error = await res.json();
         alert(error.message || "Failed to complete job");
@@ -611,18 +609,6 @@ export default function WorkerDashboard() {
       alert("Job Accepted Successfully!");
       await fetchAssignedProblems();
       setRefreshTrigger((prev) => !prev);
-
-      const newJob = {
-        id: data.problem._id,
-        title: data.problem.title,
-        customer: data.problem.createdBy?.name || "Customer",
-        location: data.problem.location?.city || "Unknown",
-        status: "assigned",
-        earned: 0,
-        amount: data.problem.amount || 0,
-        date: new Date().toISOString().split('T')[0]
-      };
-      setHistory(prev => [newJob, ...prev]);
       setActiveSection("job");
       return true;
     } catch (error) {
@@ -633,7 +619,7 @@ export default function WorkerDashboard() {
   };
 
   return (
-    <div className="flex min-h-screen bg-gray-50 dark:bg-[#0b1220] dark:text-gray-100">
+    <div className="flex min-h-screen flex-col bg-gray-50 dark:bg-[#0b1220] dark:text-gray-100 md:flex-row">
       {/* Shift Start Modal (Overlay if Offline) */}
       {!online && (
         <ShiftStartModal
@@ -643,19 +629,19 @@ export default function WorkerDashboard() {
       )}
       {/* Fixed Sidebar */}
 
-      <aside className="w-72 bg-white dark:bg-[#0f172a] border-r dark:border-slate-800 shadow-lg flex flex-col justify-between fixed h-screen">
+      <aside className="w-full bg-white dark:bg-[#0f172a] border-b dark:border-slate-800 shadow-lg flex flex-col justify-between md:fixed md:inset-y-0 md:w-72 md:border-b-0 md:border-r md:h-screen">
         <div>
           <div className="py-6 px-6 text-center">
             <h1 className="text-2xl font-bold text-green-600">Worker Pro</h1>
             <p className="text-xs text-gray-500 mt-1">Be your best. Get matched smarter.</p>
           </div>
 
-          <nav className="space-y-2 px-4">
+          <nav className="flex gap-2 overflow-x-auto px-4 pb-4 md:block md:space-y-2 md:overflow-visible">
             {menuItems.map((item) => (
               <button
                 key={item.key}
                 onClick={() => setActiveSection(item.key)}
-                className={`w-full text-left flex items-center gap-3 px-4 py-2 rounded-md transition font-medium text-sm ${activeSection === item.key
+                className={`shrink-0 md:w-full text-left flex items-center gap-3 px-4 py-2 rounded-md transition font-medium text-sm ${activeSection === item.key
                   ? "bg-green-50 text-green-700"
                   : "hover:bg-gray-100 text-gray-700"
                   }`}
@@ -694,25 +680,25 @@ export default function WorkerDashboard() {
       </aside>
 
       {/* Main Content Area */}
-      <main className="ml-72 flex-1 p-8 overflow-y-auto">
+      <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 md:ml-72">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
-            <h2 className="text-3xl font-semibold text-gray-800">{activeSection === "job" ? "Job Management" : activeSection === "wallet" ? "Wallet & Earnings" : activeSection === "performance" ? "Performance Analytics" : activeSection === "availability" ? "Availability & Schedule" : activeSection === "security" ? "Security & Communication" : "Work History"}</h2>
-            <p className="text-sm text-gray-500 mt-1">Manage your work, earnings, and settings from one place.</p>
+            <h2 className="text-2xl font-semibold text-gray-800 sm:text-3xl">{activeSection === "job" ? "Job Management" : activeSection === "wallet" ? "Wallet & Earnings" : activeSection === "performance" ? "Live Analytics" : activeSection === "availability" ? "Availability & Schedule" : activeSection === "security" ? "Security & Communication" : activeSection === "find-work" ? "Find Work" : "Work History"}</h2>
+            <p className="mt-1 text-sm text-gray-500">Manage live requests, workflow status, earnings, and history from one place.</p>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="text-sm text-gray-600">Status: <strong>{online ? "Available" : "Offline"}</strong></div>
-            <div className="text-sm text-gray-600">
-              Location:{" "}
+          <div className="flex flex-col gap-3 text-sm text-gray-600 xl:flex-row xl:flex-wrap xl:items-center xl:justify-end">
+            <div className="rounded-full bg-white px-3 py-2 shadow-sm dark:bg-slate-900">Status: <strong>{online ? "Available" : "Offline"}</strong></div>
+            <div className="rounded-full bg-white px-3 py-2 shadow-sm dark:bg-slate-900">
+              Location: {" "}
               <strong>
                 {workerLocation.city}, {workerLocation.country} (
-                {workerLocation.latitude?.toFixed(2)},{" "}
+                {workerLocation.latitude?.toFixed(2)}, {" "}
                 {workerLocation.longitude?.toFixed(2)})
               </strong>
             </div>
-            <button onClick={() => setActiveSection("wallet")} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md">Open Wallet</button>
-            <button onClick={() => setWithdrawModalOpen(true)} className="bg-white border px-3 py-2 rounded-md">Withdraw</button>
+            <button onClick={() => setActiveSection("wallet")} className="rounded-md bg-green-600 px-4 py-2 text-white hover:bg-green-700">Open Wallet</button>
+            <button onClick={() => setWithdrawModalOpen(true)} className="rounded-md border bg-white px-3 py-2">Withdraw</button>
           </div>
         </div>
 
@@ -731,14 +717,14 @@ export default function WorkerDashboard() {
           <WalletSection balance={walletBalance} onWithdrawClick={() => setWithdrawModalOpen(true)} />
         )}
         {activeSection === "performance" && (
-          <PerformanceSection range={performanceRange} setRange={setPerformanceRange} />
+          <PerformanceSection jobs={history} />
         )}
         {activeSection === "availability" && <AvailabilitySection />}
         {activeSection === "security" && (
           <SecuritySection onReport={() => setFraudReportOpen(true)} />
         )}
         {activeSection === "history" && (
-          <HistorySection history={history} />
+          <HistorySection jobs={history} />
         )}
         {activeSection === "find-work" && (
           <FindWorkSection
@@ -811,7 +797,7 @@ function JobSection({ problems, onAcceptJob, onRejectJob, onCompleteJob, fetchAs
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 gap-6">
+      <div className="grid gap-6 xl:grid-cols-2">
         {/* Job Requests */}
         <div className="bg-white p-6 rounded-xl shadow-sm">
           <div className="flex items-center justify-between mb-4">
@@ -824,17 +810,13 @@ function JobSection({ problems, onAcceptJob, onRejectJob, onCompleteJob, fetchAs
 
             {requestedProblems.map((problem) => (
               <div key={problem._id} className="border p-4 rounded-lg">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                   <div>
-                    <div className="flex items-center gap-2">
-                      <h4 className="font-medium">{problem.title}</h4>
-                      <span className="text-xs text-gray-400">{new Date(problem.createdAt).toLocaleDateString()}</span>
-                    </div>
                     <p className="text-sm text-gray-500">{problem.createdBy?.name || "Customer"} • {problem.location?.city || "Unknown"}</p>
                     <p className="text-xs text-gray-500 mt-1">{problem.description}</p>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
                       onClick={async () => {
                         const success = await onAcceptJob(problem._id);
@@ -876,7 +858,7 @@ function JobSection({ problems, onAcceptJob, onRejectJob, onCompleteJob, fetchAs
 
             {activeProblems.map((problem) => (
               <div key={problem._id} className="border p-4 rounded-lg">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                   <div>
                     <div className="flex items-center gap-2">
                       <h4 className="font-medium">{problem.title}</h4>
@@ -884,13 +866,13 @@ function JobSection({ problems, onAcceptJob, onRejectJob, onCompleteJob, fetchAs
                     </div>
                     <p className="text-sm text-gray-500">{problem.createdBy?.name || "Customer"} • {problem.location?.city || "Unknown"}</p>
                     <p className="text-xs text-gray-500 mt-1">Payment: {problem.paymentMethod || "N/A"}</p>
-                    <div className="flex items-center gap-2 mt-2 text-xs">
-                      <Badge>OTP Required</Badge>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                      <Badge className="bg-blue-50 text-blue-700">OTP only for completion</Badge>
                       <Badge>{problem.status}</Badge>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     {problem.status === 'assigned' && (
                       <button 
                         onClick={async () => {
@@ -931,7 +913,7 @@ function JobSection({ problems, onAcceptJob, onRejectJob, onCompleteJob, fetchAs
           <div className="space-y-3">
             {completedProblems.slice(0, 5).map((problem) => (
               <div key={problem._id} className="border p-4 rounded-lg">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                   <div>
                     <h4 className="font-medium">{problem.title}</h4>
                     <p className="text-sm text-gray-500">{problem.createdBy?.name || "Customer"}</p>
@@ -968,7 +950,7 @@ function WalletSection({ balance, onWithdrawClick }) {
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-6">
+    <div className="grid gap-6 lg:grid-cols-2">
       <div className="bg-white p-6 rounded-xl shadow-sm">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold">Wallet & Balance</h3>
@@ -1007,67 +989,84 @@ function WalletSection({ balance, onWithdrawClick }) {
 }
 
 /* ------------------ Performance Section ------------------ */
-function PerformanceSection({ range, setRange }) {
+function PerformanceSection({ jobs }) {
+  const statusData = buildStatusData(jobs);
+  const categoryData = buildCategoryData(jobs);
+  const summary = jobs.reduce(
+    (acc, job) => {
+      acc.total += 1;
+      acc.earnings += Number(job.amount || 0);
+      if (job.status === "completed") acc.completed += 1;
+      if (job.status === "requested") acc.requested += 1;
+      if (job.status === "assigned" || job.status === "in_progress") acc.active += 1;
+      return acc;
+    },
+    { total: 0, completed: 0, requested: 0, active: 0, earnings: 0 },
+  );
+
   return (
-    <div>
-      <div className="flex items-center gap-3 mb-4">
-        <button onClick={() => setRange('weekly')} className={`px-3 py-1 rounded-md ${range === 'weekly' ? 'bg-green-600 text-white' : 'bg-white border'}`}>Weekly</button>
-        <button onClick={() => setRange('monthly')} className={`px-3 py-1 rounded-md ${range === 'monthly' ? 'bg-green-600 text-white' : 'bg-white border'}`}>Monthly</button>
+    <div className="space-y-6">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-xl border bg-white p-4 shadow-sm">
+          <p className="text-sm text-gray-500">Total jobs</p>
+          <p className="mt-2 text-3xl font-semibold text-gray-900">{summary.total}</p>
+        </div>
+        <div className="rounded-xl border bg-white p-4 shadow-sm">
+          <p className="text-sm text-gray-500">Active jobs</p>
+          <p className="mt-2 text-3xl font-semibold text-gray-900">{summary.active}</p>
+        </div>
+        <div className="rounded-xl border bg-white p-4 shadow-sm">
+          <p className="text-sm text-gray-500">Completed jobs</p>
+          <p className="mt-2 text-3xl font-semibold text-gray-900">{summary.completed}</p>
+        </div>
+        <div className="rounded-xl border bg-white p-4 shadow-sm">
+          <p className="text-sm text-gray-500">Live earnings snapshot</p>
+          <p className="mt-2 text-3xl font-semibold text-gray-900">${summary.earnings.toFixed(0)}</p>
+        </div>
       </div>
 
-      <div className="bg-white p-6 rounded-xl shadow-sm">
-        {range === 'weekly' ? (
-          <div>
-            <h3 className="font-semibold mb-3">Weekly Performance</h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={performanceWeekly}>
-                <XAxis dataKey="day" />
-                <YAxis />
-                <Tooltip />
-                <Bar dataKey="jobs" fill="#10b981" name="Jobs" />
-                <Bar dataKey="earnings" fill="#6366f1" name="Earnings" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        ) : (
-          <div>
-            <h3 className="font-semibold mb-3">Monthly Performance</h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={performanceMonthly}>
-                <XAxis dataKey="month" />
-                <YAxis />
-                <Tooltip />
-                <Bar dataKey="jobs" fill="#10b981" name="Jobs" />
-                <Bar dataKey="earnings" fill="#6366f1" name="Earnings" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-      </div>
-
-      <div className="grid grid-cols-2 gap-6 mt-6">
-        <div className="bg-white p-6 rounded-xl shadow-sm">
-          <h4 className="font-semibold mb-3">KPIs</h4>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="p-3 border rounded-md"><p className="text-sm text-gray-500">Jobs Completed</p><p className="font-bold">142</p></div>
-            <div className="p-3 border rounded-md"><p className="text-sm text-gray-500">Avg Rating</p><p className="font-bold">4.8</p></div>
-            <div className="p-3 border rounded-md"><p className="text-sm text-gray-500">Earnings (30d)</p><p className="font-bold">$4,320</p></div>
-            <div className="p-3 border rounded-md"><p className="text-sm text-gray-500">Response Time</p><p className="font-bold">12m</p></div>
-          </div>
+      <div className="grid gap-6 xl:grid-cols-2">
+        <div className="rounded-xl bg-white p-6 shadow-sm">
+          <h4 className="mb-3 font-semibold">Job status overview</h4>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={statusData}>
+              <XAxis dataKey="name" tickLine={false} axisLine={false} />
+              <YAxis allowDecimals={false} />
+              <Tooltip />
+              <Bar dataKey="value" radius={[10, 10, 0, 0]}>
+                {statusData.map((entry) => (
+                  <Cell key={entry.name} fill={entry.fill} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
         </div>
 
-        <div className="bg-white p-6 rounded-xl shadow-sm">
-          <h4 className="font-semibold mb-3">Job Categories</h4>
-          <ResponsiveContainer width="100%" height={220}>
-            <PieChart>
-              <Pie data={pieData} dataKey="value" nameKey="name" outerRadius={80}>
-                {pieData.map((_, i) => (
-                  <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
+        <div className="rounded-xl bg-white p-6 shadow-sm">
+          <h4 className="mb-3 font-semibold">Job categories</h4>
+          {categoryData.length === 0 ? (
+            <p className="text-sm text-gray-500">No job categories available yet.</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie data={categoryData} dataKey="value" nameKey="name" outerRadius={100} label>
+                  {categoryData.map((_, index) => (
+                    <Cell key={index} fill={CATEGORY_COLORS[index % CATEGORY_COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-xl bg-white p-6 shadow-sm">
+        <h4 className="mb-3 font-semibold">Workflow notes</h4>
+        <div className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-lg border p-3 text-sm text-gray-600">Accept moves a job from <strong>requested</strong> to <strong>assigned</strong>.</div>
+          <div className="rounded-lg border p-3 text-sm text-gray-600">Start moves a job from <strong>assigned</strong> to <strong>in progress</strong>.</div>
+          <div className="rounded-lg border p-3 text-sm text-gray-600">Complete requires OTP; reject returns a job to the open pool.</div>
         </div>
       </div>
     </div>
@@ -1157,35 +1156,45 @@ function SecuritySection({ onReport }) {
 }
 
 /* ------------------ History Section ------------------ */
-function HistorySection({ history }) {
+function HistorySection({ jobs }) {
+  const orderedJobs = [...jobs].sort((left, right) => new Date(right.createdAt || 0) - new Date(left.createdAt || 0));
+
   return (
-    <div className="bg-white p-6 rounded-xl shadow-sm">
-      <h3 className="font-semibold mb-4">Work History</h3>
-      <div className="overflow-x-auto">
-        <table className="w-full text-left">
-          <thead>
-            <tr className="border-b text-sm text-gray-500">
-              <th className="py-2">Job</th>
-              <th className="py-2">Date</th>
-              <th className="py-2">Customer</th>
-              <th className="py-2">Status</th>
-              <th className="py-2">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {history.map((h) => (
-              <tr key={h.id} className="border-b last:border-0 hover:bg-gray-50">
-                <td className="py-3 font-medium">{h.title}</td>
-                <td className="py-3 text-sm text-gray-500">{h.date}</td>
-                <td className="py-3 text-sm text-gray-500">{h.customer}</td>
-                <td className="py-3">
-                  <Badge>{h.status}</Badge>
-                </td>
-                <td className="py-3 text-sm font-semibold">${h.earned}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <div className="space-y-4 rounded-xl bg-white p-6 shadow-sm">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h3 className="font-semibold">Work History</h3>
+          <p className="text-sm text-gray-500">Live record of job CRUD updates from the backend.</p>
+        </div>
+        <Badge className="bg-green-50 text-green-700">{orderedJobs.length} records</Badge>
+      </div>
+
+      <div className="grid gap-4">
+        {orderedJobs.length === 0 ? (
+          <div className="rounded-lg border border-dashed p-6 text-center text-sm text-gray-500">No job history yet.</div>
+        ) : (
+          orderedJobs.map((job) => (
+            <article key={job._id} className="rounded-xl border p-4 transition hover:bg-gray-50">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h4 className="font-medium text-gray-900">{job.title}</h4>
+                    <Badge className="bg-gray-100 text-gray-700">{STATUS_LABELS[job.status] || job.status || "Unknown"}</Badge>
+                  </div>
+                  <p className="text-sm text-gray-500">{job.createdBy?.name || "Customer"} • {job.location?.city || "Unknown"}</p>
+                  <p className="text-sm text-gray-600">Created: {formatDateTime(job.createdAt)}</p>
+                  <p className="text-sm text-gray-600">Assigned: {formatDateTime(job.assignedAt)}</p>
+                  <p className="text-sm text-gray-600">Completed: {formatDateTime(job.completedAt)}</p>
+                </div>
+                <div className="min-w-32 rounded-lg bg-gray-50 p-3 text-right">
+                  <p className="text-xs uppercase tracking-wide text-gray-500">Amount</p>
+                  <p className="text-lg font-semibold text-gray-900">${Number(job.amount || 0).toFixed(0)}</p>
+                  <p className="text-xs text-gray-500">Payment: {job.paymentStatus || "pending"}</p>
+                </div>
+              </div>
+            </article>
+          ))
+        )}
       </div>
     </div>
   );
@@ -1240,7 +1249,7 @@ function FindWorkSection({ workerCategory, onAccept, onReject, refreshTrigger })
           </div>
         ) : (
           problems.map(problem => (
-            <div key={problem._id} className="bg-white p-5 rounded-lg shadow-sm border border-gray-100 flex justify-between items-center hover:shadow-md transition">
+            <div key={problem._id} className="bg-white p-5 rounded-lg shadow-sm border border-gray-100 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between hover:shadow-md transition">
               <div>
                 <h4 className="font-bold text-lg text-gray-800">{problem.title}</h4>
                 <div className="flex items-center gap-2 text-sm text-gray-500 mt-1">
@@ -1250,7 +1259,7 @@ function FindWorkSection({ workerCategory, onAccept, onReject, refreshTrigger })
                 </div>
                 <p className="text-gray-600 mt-2 text-sm">{problem.description}</p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => onAccept(problem._id)}
                   className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md font-medium shadow-sm transition transform active:scale-95"

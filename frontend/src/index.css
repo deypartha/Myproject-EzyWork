@@ -2,11 +2,19 @@
 
 html, body, #root {
 	height: 100%;
+	background: #0b1220;
+	color-scheme: dark;
+}
+
+html {
+	background: #0b1220;
+	color-scheme: dark;
 }
 
 body {
-	background: #f8fafc;
-	color: #0b2545;
+	margin: 0;
+	background: #0b1220;
+	color: #e5e7eb;
 	transition: background-color 200ms ease, color 200ms ease;
 }
 

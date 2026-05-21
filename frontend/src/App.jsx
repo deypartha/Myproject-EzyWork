@@ -22,7 +22,7 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] dark:bg-[#0b1220] dark:text-gray-100">
+    <div className="min-h-screen bg-[#0b1220] text-gray-100">
       <Routes>
         {/* Sign page - no navbar */}
         <Route path="/sign" element={<Sign />} />
@@ -43,7 +43,7 @@ function App() {
           path="/user"
           element={
             <RoleProtectedRoute allowedRoles={["user"]}>
-              <div className="flex flex-col items-center px-6 md:px-16">
+              <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 sm:px-6 lg:px-8">
                 <Navbar />
                 <User />
               </div>
@@ -56,7 +56,7 @@ function App() {
           path="/payment"
           element={
             <RoleProtectedRoute allowedRoles={["user"]}>
-              <div className="flex flex-col items-center px-6 md:px-16">
+              <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 sm:px-6 lg:px-8">
                 <Navbar />
                 <Payment />
               </div>
@@ -69,7 +69,7 @@ function App() {
           path="/worker"
           element={
             <RoleProtectedRoute allowedRoles={["worker"]}>
-              <div className="flex flex-col items-center px-6 md:px-16">
+              <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 sm:px-6 lg:px-8">
                 <Navbar />
                 <Worker />
               </div>
@@ -84,7 +84,7 @@ function App() {
         <Route
           path="/"
           element={
-            <div className="flex flex-col items-center justify-center px-6 md:px-16">
+            <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 sm:px-6 lg:px-8">
               <Navbar />
 
       {/* <header className="w-full flex justify-between items-center py-6 max-w-7xl">
@@ -109,9 +109,9 @@ function App() {
       </header> */}
 
       {/* Hero Section */}
-      <main className="flex flex-col md:flex-row justify-between items-center w-full max-w-7xl py-12">
+      <main className="flex w-full flex-col items-center justify-between gap-10 py-12 md:flex-row md:gap-12">
         {/* Left Text */}
-        <div className="flex flex-col gap-6 max-w-lg">
+        <div className="flex w-full max-w-xl flex-col gap-6 text-center md:text-left">
           <h2 className="text-5xl md:text-6xl font-bold text-[#0b2545] leading-tight">
             Simplify Your Work – AI Finds the Right Expert for You
           </h2>
@@ -119,7 +119,7 @@ function App() {
             From plumbing to electrical, cleaning to carpentry — EzyWork connects
             you with trusted local professionals in seconds using AI-powered matching.
           </p>
-          <div className="flex gap-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:justify-center md:justify-start">
             <button onClick={() => navigate("/user")} className="bg-[#0b2545] text-white px-5 py-3 rounded-md hover:bg-[#14365b]">
               Find a Worker
             </button>
@@ -130,19 +130,19 @@ function App() {
         </div>
 
         {/* Right Illustration */}
-        <div className="mt-10 md:mt-0 md:ml-12">
-          <div className="border-4 border-gray-300 rounded-lg shadow-lg overflow-hidden">
+        <div className="mt-4 w-full max-w-xl md:mt-0 md:ml-12">
+          <div className="border-4 border-gray-300 rounded-lg shadow-lg bg-white p-2">
             <img
               src={WorkerImage}
               alt="Worker Illustration"
-              className="w-full max-w-md object-cover"
+              className="w-full max-w-md object-contain block mx-auto"
             />
           </div>
         </div>
       </main>
 
       {/* Features Section */}
-      <section id="features-section" className="w-full max-w-7xl py-12">
+      <section id="features-section" className="w-full max-w-7xl mx-auto py-12">
         <h3 className="text-4xl font-bold text-center text-[#0b2545] mb-8">
           Why Choose EzyWork?
         </h3>
@@ -195,7 +195,7 @@ function App() {
       </section>
 
               {/* Call-to-Action Section */}
-              <footer className="w-full max-w-7xl py-12 text-center mb-8">
+              <footer className="w-full max-w-7xl mx-auto py-12 text-center mb-8">
                 <h4 className="text-3xl font-bold text-[#0b2545] mb-4">
                   Ready to get your work done the smart way?
                 </h4>

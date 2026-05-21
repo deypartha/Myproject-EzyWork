@@ -65,6 +65,18 @@ function Payment() {
     loadPaymentConfig();
   }, [problemId]);
 
+  useEffect(() => {
+    if (problem || !problemId) return;
+
+    const fallbackState = location.state?.problem || location.state?.currentProblem;
+    if (fallbackState) {
+      setProblem(fallbackState);
+      if (typeof fallbackState.amount === "number") {
+        setAmount(String(fallbackState.amount));
+      }
+    }
+  }, [location.state, problem, problemId]);
+
   const loadRazorpayScript = () => {
     return new Promise((resolve) => {
       if (window.Razorpay) {

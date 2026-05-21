@@ -35,6 +35,7 @@ function User() {
   const [helpModalOpen, setHelpModalOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState([]);
   const [showQuestions, setShowQuestions] = useState(true);
+  const [requestNotice, setRequestNotice] = useState("");
   const chatEndRef = useRef(null);
   const [currentProblemId, setCurrentProblemId] = useState(null);
   const [userProblems, setUserProblems] = useState([]);
@@ -375,6 +376,7 @@ function User() {
 };
   const handleWorkerSelect = async (worker) => {
     setSelectedWorker(worker);
+    setRequestNotice("");
     if (currentProblemId) {
       try {
         await fetch(`${API_BASE_URL}/api/problems/${currentProblemId}/request`, {
@@ -393,12 +395,12 @@ function User() {
 
   const handlePayment = async (method) => {
     const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
-    setOtp(generatedOtp);
     const fixedAmount = parseAmount(selectedWorker?.price);
+    let confirmedOtp = generatedOtp;
 
     if (currentProblemId) {
       try {
-        await fetch(`${API_BASE_URL}/api/problems/${currentProblemId}/book`, {
+        const res = await fetch(`${API_BASE_URL}/api/problems/${currentProblemId}/book`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -407,10 +409,24 @@ function User() {
             amount: fixedAmount,
           })
         });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data?.message || "Failed to confirm booking and OTP");
+        }
+
+        if (data?.problem?.otp) {
+          confirmedOtp = String(data.problem.otp);
+        }
+        setCurrentProblem(data?.problem || null);
       } catch (err) {
         console.error("Failed to update booking:", err);
+        alert(err.message || "Failed to confirm booking. Please try again.");
+        return;
       }
     }
+
+    setOtp(confirmedOtp);
 
     // Still save to localStorage for now, but will fetch from backend later
     const newBooking = {
@@ -418,7 +434,7 @@ function User() {
       worker: selectedWorker,
       problem,
       status: "assigned",
-      otp: generatedOtp,
+      otp: confirmedOtp,
       workerName: selectedWorker.name,
       workerEmail: selectedWorker.contact,
       dateTime: new Date().toLocaleString(),
@@ -465,10 +481,12 @@ function User() {
       if (res.ok) {
         const problem = await res.json();
         setCurrentProblem(problem);
+        return problem;
       }
     } catch (err) {
       console.error("Failed to fetch current problem:", err);
     }
+    return null;
   };
 
   // Camera / microphone helpers
@@ -732,6 +750,37 @@ function User() {
     }
   }, [step, currentProblemId]);
 
+  // While waiting for acceptance, keep polling the current problem so a reject
+  // or status reset returns the user to worker selection even if a socket event is missed.
+  useEffect(() => {
+    if (step !== 3 || !currentProblemId) return;
+
+    let isActive = true;
+
+    const syncRequestStatus = async () => {
+      const problemData = await fetchCurrentProblem();
+      if (!isActive || !problemData) return;
+
+      if (problemData.status === "open") {
+        setRequestNotice(
+          "The worker rejected your request. Please select another worker.",
+        );
+        setOtp("");
+        setSelectedWorker(null);
+        setCurrentProblem(null);
+        setStep(2);
+      }
+    };
+
+    syncRequestStatus();
+    const interval = setInterval(syncRequestStatus, 4000);
+
+    return () => {
+      isActive = false;
+      clearInterval(interval);
+    };
+  }, [step, currentProblemId]);
+
   // Initialize Socket
   useEffect(() => {
     socketRef.current = io(API_BASE_URL);
@@ -758,6 +807,7 @@ function User() {
 
     socketRef.current.on("request-accepted", (data) => {
       console.log("Request Accepted:", data);
+      setRequestNotice("");
       alert("Your worker request has been accepted! You can now proceed to payment.");
       
       // Refresh current problem and go to payment step
@@ -769,6 +819,33 @@ function User() {
 
     return () => {
       socketRef.current.off("request-accepted");
+    };
+  }, [currentProblemId]);
+
+  // Listen for Request Rejected
+  useEffect(() => {
+    if (!socketRef.current) return;
+
+    const handleRequestRejected = (data) => {
+      console.log("Request Rejected:", data);
+
+      const message =
+        data?.message ||
+        "The worker rejected your request. Please select another worker.";
+
+      setRequestNotice(message);
+      setOtp("");
+      setSelectedWorker(null);
+      setCurrentProblem(null);
+      setStep(2);
+      fetchCurrentProblem();
+      alert(message);
+    };
+
+    socketRef.current.on("request-rejected", handleRequestRejected);
+
+    return () => {
+      socketRef.current.off("request-rejected", handleRequestRejected);
     };
   }, [currentProblemId]);
 
@@ -795,10 +872,36 @@ function User() {
     };
   }, [navigate, currentProblem, currentProblemId]);
 
+  useEffect(() => {
+    if (!currentProblem || !currentProblemId) return;
+
+    const paymentPending = currentProblem.status === "completed" && currentProblem.paymentStatus !== "completed";
+
+    if (paymentPending) {
+      setRequestNotice("");
+      if (step !== 4) {
+        setStep(4);
+      }
+
+      navigate("/payment", {
+        state: {
+          problem: currentProblem,
+          problemId: currentProblemId,
+          source: "problem-completed",
+        },
+      });
+    }
+  }, [currentProblem, currentProblemId, navigate, step]);
+
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-800 via-gray-800 to-indigo-900 py-8 px-4 md:px-8">
       <div className="max-w-6xl mx-auto">
         <button onClick={()=>navigate('/')} className="mb-4 bg-gray-600 p-5 text-blue-500 hover:text-blue-700 font-medium cursor-pointer">Back to Home</button>
+        {requestNotice && (
+          <div className="mb-6 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {requestNotice}
+          </div>
+        )}
         {/* Step Progress Indicator */}
         <div className="mb-8">
           <div className="flex items-center justify-center gap-2 md:gap-4">

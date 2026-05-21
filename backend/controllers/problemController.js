@@ -455,22 +455,43 @@ export const rejectProblem = async (req, res) => {
       return res.status(404).json({ message: "Problem not found" });
     }
 
-    // If the worker is rejecting a requested job, we revert it to open and clear assignment
+    const isSameWorker = problem.assignedTo?.toString() === workerId;
+
+    // If the worker is rejecting a requested or assigned job, return it to the open pool.
+    // Clear stale completion state so reject cannot fall back into the OTP flow.
     if (
-      problem.status === "requested" &&
-      problem.assignedTo?.toString() === workerId
+      isSameWorker &&
+      (problem.status === "requested" || problem.status === "assigned")
     ) {
       problem.status = "open";
       problem.assignedTo = null;
       problem.requestedAt = null;
+      problem.assignedAt = null;
+      problem.otp = null;
+      problem.paymentMethod = null;
+      problem.paymentStatus = "pending";
+      problem.paymentId = null;
+      problem.paymentDate = null;
       await problem.save();
 
       // Notify the customer that the worker rejected
       if (req.io) {
-        req.io.to(`user-${problem.createdBy}`).emit("request-rejected", {
-          problem,
-          message:
-            "The worker rejected your request. You can request another worker.",
+        const createdById = problem.createdBy?.toString();
+        const createdByUser = createdById
+          ? await User.findById(createdById).select("email")
+          : null;
+
+        const userRooms = new Set();
+        if (createdById) userRooms.add(`user-${createdById}`);
+        if (createdByUser?.email)
+          userRooms.add(`user-email-${createdByUser.email}`);
+
+        userRooms.forEach((room) => {
+          req.io.to(room).emit("request-rejected", {
+            problem,
+            message:
+              "The worker rejected your request. Please select another worker.",
+          });
         });
       }
 
