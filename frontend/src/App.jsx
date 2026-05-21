@@ -131,11 +131,11 @@ function App() {
 
         {/* Right Illustration */}
         <div className="mt-4 w-full max-w-xl md:mt-0 md:ml-12">
-          <div className="border-4 border-gray-300 rounded-lg shadow-lg bg-white p-2">
+          <div className="aspect-4/4 overflow-hidden rounded-lg border-4 border-gray-300 bg-white shadow-lg">
             <img
               src={WorkerImage}
               alt="Worker Illustration"
-              className="w-full max-w-md object-contain block mx-auto"
+              className="block h-full w-full object-cover"
             />
           </div>
         </div>
