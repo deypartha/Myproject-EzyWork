@@ -125,45 +125,20 @@ function User() {
     fetchUserProblems();
   }, [user]);
 
-  const isPlumberRequest = (text) => {
-    if (!text) return false;
-    const t = text.toLowerCase();
-    return t.includes("plumb") || t.includes("tap") || t.includes("leak") || t.includes("pipe");
-  };
-
-  // Try to detect the skill using backend/AI (Gemini). Falls back to simple keyword matching.
-  const detectSkill = async (text) => {
-    if (!text) return null;
-    try {
-      // Backend detects with Gemini if configured, and falls back to keyword rules.
-      const res = await fetch(`${API_BASE_URL}/api/workers/detect-skill`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      });
-      if (res.ok) {
-        const json = await res.json();
-        if (json?.skill) return json.skill;
-      }
-    } catch (e) {
-      // ignore and fallback
-      console.warn("AI detect failed, falling back to local heuristics", e);
-    }
-
-    // fallback simple heuristics
-    if (isPlumberRequest(text)) return "Plumber";
-    const t = text.toLowerCase();
-    if (t.includes("electri") || t.includes("switch") || t.includes("wire")) return "Electrician";
-    if (t.includes("clean") || t.includes("deep clean") || t.includes("wash")) return "Cleaner";
-    if (t.includes("paint") || t.includes("color") || t.includes("wall")) return "Painter";
-    if (t.includes("carpen") || t.includes("wood") || t.includes("furniture")) return "Carpenter";
-    return null;
-  };
-
   const handleProblemSubmit = () => {
   (async () => {
     try {
-      const skill = await detectSkill(problem);
+      const searchRes = await fetch(
+        `${API_BASE_URL}/api/workers/search?q=${encodeURIComponent(problem)}`
+      );
+
+      if (!searchRes.ok) {
+        const errorText = await searchRes.text();
+        throw new Error(errorText || "Failed to detect problem and find workers");
+      }
+
+      const payload = await searchRes.json();
+      const skill = payload?.detectedSkill || null;
       setDetectedSkill(skill);
 
       // ==========================
@@ -214,102 +189,9 @@ function User() {
         }
       }
 
-      // ==========================
-      // Search Workers
-      // ==========================
-
-      let workers = [];
-
-      try {
-        const searchRes = await fetch(
-          `${API_BASE_URL}/api/workers/search?q=${encodeURIComponent(problem)}`
-        );
-
-        if (!searchRes.ok) {
-          const errorText = await searchRes.text();
-
-          console.log(
-            "Search API Error:",
-            errorText
-          );
-        } else {
-          const payload = await searchRes.json();
-
-          workers = Array.isArray(payload?.workers)
-            ? payload.workers
-            : [];
-
-          if (!skill && payload?.detectedSkill) {
-            setDetectedSkill(
-              payload.detectedSkill
-            );
-          }
-        }
-      } catch (err) {
-        console.log(
-          "Search request failed:",
-          err
-        );
-      }
-
-      // ==========================
-      // Fallback API
-      // ==========================
-
-      if (workers.length === 0) {
-        try {
-          let url = `${API_BASE_URL}/api/workers/all`;
-
-          if (skill) {
-            url = `${API_BASE_URL}/api/workers/type/${encodeURIComponent(
-              skill
-            )}`;
-          }
-
-          const response = await fetch(url);
-
-          if (!response.ok) {
-            const errorText =
-              await response.text();
-
-            console.log(
-              "Fallback API Error:",
-              errorText
-            );
-
-            throw new Error(
-              `HTTP Error ${response.status}`
-            );
-          }
-
-          const data =
-            await response.json();
-
-          workers = Array.isArray(data)
-            ? data
-            : data?.workers || [];
-        } catch (err) {
-          console.log(
-            "Fallback failed:",
-            err
-          );
-
-          workers = [];
-        }
-      }
-
-      // ==========================
-      // Final Safety Check
-      // ==========================
-
-      if (!Array.isArray(workers)) {
-        console.log(
-          "Invalid workers data:",
-          workers
-        );
-
-        workers = [];
-      }
+      const workers = Array.isArray(payload?.workers)
+        ? payload.workers
+        : [];
 
       // ==========================
       // Transform Worker Data
@@ -374,6 +256,21 @@ function User() {
     }
   })();
 };
+
+  const handleVoiceSubmit = async () => {
+    if (isTranscribing) {
+      stopTranscription();
+    }
+
+    stopRecording();
+    stopAudioTracks();
+
+    if (!problem.trim()) {
+      return;
+    }
+
+    handleProblemSubmit();
+  };
   const handleWorkerSelect = async (worker) => {
     setSelectedWorker(worker);
     setRequestNotice("");
@@ -634,7 +531,7 @@ function User() {
       const fd = new FormData();
       fd.append("file", blob, "audio.webm");
       // POST to your backend which should perform speech-to-text + translate to English
-      const res = await fetch("/api/translate", {
+      const res = await fetch(`${API_BASE_URL}/api/translate`, {
         method: "POST",
         body: fd,
       });
@@ -643,9 +540,9 @@ function User() {
         throw new Error(txt || "Transcription failed");
       }
       const json = await res.json();
-      // expect { translated_text: '...', detected_language: 'Hindi' }
-      const translated = json.translated_text || json.text || "";
-      const lang = json.detected_language || json.language || null;
+      // Accept both snake_case and camelCase responses.
+      const translated = json.translated_text || json.translatedText || json.text || json.originalText || "";
+      const lang = json.detected_language || json.detectedLanguage || json.language || null;
       if (translated) {
         setProblem(translated);
         finalTranscriptRef.current = translated;
@@ -1000,6 +897,15 @@ function User() {
                 >
                   <FaMicrophone className="text-lg" />
                   <span>{isTranscribing ? 'Recording...' : isMicOn ? 'Mic On' : 'Use Voice'}</span>
+                </button>
+
+                <button
+                  onClick={handleVoiceSubmit}
+                  disabled={!problem.trim()}
+                  className="flex items-center gap-2 px-6 py-3 rounded-xl font-medium transition-all bg-green-600 text-white hover:bg-green-700 shadow-lg disabled:bg-gray-300 disabled:cursor-not-allowed"
+                >
+                  <FaCheckCircle className="text-lg" />
+                  <span>{isTranscribing ? 'Stop & Submit Voice' : 'Submit Voice'}</span>
                 </button>
               </div>
 

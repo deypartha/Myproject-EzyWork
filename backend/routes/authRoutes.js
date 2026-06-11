@@ -11,7 +11,10 @@ const verifyToken = (req, res, next) => {
   if (!token) return res.status(401).json({ msg: "No token provided" });
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-secret-key");
+    const decoded = jwt.verify(
+      token,
+      process.env.JWT_SECRET || "your-secret-key",
+    );
     req.userId = decoded.id;
     next();
   } catch (err) {
@@ -30,7 +33,8 @@ router.post("/signup", async (req, res) => {
     }
 
     const existingUser = await User.findOne({ email });
-    if (existingUser) return res.status(400).json({ msg: "User already exists" });
+    if (existingUser)
+      return res.status(400).json({ msg: "User already exists" });
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const user = new User({ name, email, password: hashedPassword, role });
@@ -40,10 +44,10 @@ router.post("/signup", async (req, res) => {
     const token = jwt.sign(
       { id: user._id, role: user.role },
       process.env.JWT_SECRET || "your-secret-key",
-      { expiresIn: "7d" }
+      { expiresIn: "1m" },
     );
 
-    res.status(201).json({ 
+    res.status(201).json({
       msg: "User created successfully",
       token,
       user: {
@@ -76,7 +80,7 @@ router.post("/signin", async (req, res) => {
     const token = jwt.sign(
       { id: user._id, role: user.role },
       process.env.JWT_SECRET || "your-secret-key",
-      { expiresIn: "7d" }
+      { expiresIn: "1m" },
     );
 
     res.json({
@@ -113,7 +117,7 @@ router.put("/profile", verifyToken, async (req, res) => {
     const user = await User.findByIdAndUpdate(
       req.userId,
       { name, email },
-      { new: true }
+      { new: true },
     ).select("-password");
 
     res.json({ msg: "Profile updated", user });

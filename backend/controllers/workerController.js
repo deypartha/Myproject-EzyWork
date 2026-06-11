@@ -99,61 +99,25 @@ const normalizeSkillName = (skill = "") => {
   return skill;
 };
 
-const AC_PLUMBER_HINTS = [
-  "ac",
-  "a/c",
-  "air conditioner",
-  "air conditioning",
-  "hvac",
-  "cooling",
-  "not cooling",
-  "ac not working",
-  "ac issue",
-  "ac problem",
-  "ac repair",
-  "ac service",
-];
-
-const detectSkillFromKeywords = (text = "") => {
-  const t = String(text).toLowerCase();
-  if (!t.trim()) return null;
-
-  for (const [canonical, aliases] of Object.entries(SKILL_ALIASES)) {
-    if (aliases.some((alias) => t.includes(alias.toLowerCase()))) {
-      return canonical;
-    }
-  }
-
-  return null;
-};
-
-const applySkillOverrides = (query = "", skill = null) => {
-  const q = String(query).toLowerCase();
-  if (AC_PLUMBER_HINTS.some((hint) => q.includes(hint))) {
-    return "Plumber";
-  }
-
-  return skill;
-};
-
-const detectSkillWithGemini = async (text = "") => {
-  const apiKey = process.env.GEMINI_API_KEY;
+const detectSkillWithHuggingFace = async (text = "") => {
+  const apiKey = process.env.HUGGINGFACE_API_KEY || process.env.HF_API_KEY;
   if (!apiKey || !text?.trim()) return null;
 
-  const allowedSkills = Object.keys(SKILL_ALIASES).join(", ");
-  const prompt = `Classify this user home-service request into exactly one skill from this list: ${allowedSkills}. Reply with only one label from the list and nothing else. If none match, reply exactly: Unknown. Request: "${text}".`;
-
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+    "https://api-inference.huggingface.co/models/facebook/bart-large-mnli",
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0,
-          maxOutputTokens: 20,
+        inputs: text,
+        parameters: {
+          candidate_labels: Object.keys(SKILL_ALIASES),
+          multi_label: false,
         },
+        options: { wait_for_model: true },
       }),
     },
   );
@@ -163,13 +127,10 @@ const detectSkillWithGemini = async (text = "") => {
   }
 
   const data = await response.json();
-  const output = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-  if (!output) return null;
+  const bestLabel = data?.labels?.[0];
+  if (!bestLabel) return null;
 
-  const cleanedOutput = output.replace(/[^a-zA-Z\s]/g, " ").trim();
-  const normalized = normalizeSkillName(cleanedOutput);
-  if (!normalized || normalized === "Unknown") return null;
-  return Object.keys(SKILL_ALIASES).includes(normalized) ? normalized : null;
+  return normalizeSkillName(bestLabel);
 };
 
 const getSkillRegexList = (skill = "") => {
@@ -317,7 +278,7 @@ const getWorkersByType = async (req, res) => {
   }
 };
 
-// Detect skill from user query (Gemini first, keyword fallback)
+// Detect skill from user query using Hugging Face only
 const detectSkill = async (req, res) => {
   try {
     const { text } = req.body || {};
@@ -327,11 +288,7 @@ const detectSkill = async (req, res) => {
         .json({ message: "text is required" });
     }
 
-    let skill = await detectSkillWithGemini(text);
-    if (!skill) {
-      skill = detectSkillFromKeywords(text);
-    }
-    skill = applySkillOverrides(text, skill);
+    const skill = await detectSkillWithHuggingFace(text);
 
     return res.status(httpStatus.OK).json({ skill });
   } catch (error) {
@@ -341,7 +298,7 @@ const detectSkill = async (req, res) => {
   }
 };
 
-// Search workers by free-text query
+// Search workers by free-text query using Hugging Face only
 const searchWorkers = async (req, res) => {
   try {
     const query = String(req.query.q || "").trim();
@@ -351,30 +308,13 @@ const searchWorkers = async (req, res) => {
         .json({ detectedSkill: null, workers: [] });
     }
 
-    let detectedSkill = await detectSkillWithGemini(query);
-    if (!detectedSkill) {
-      detectedSkill = detectSkillFromKeywords(query);
-    }
-    detectedSkill = applySkillOverrides(query, detectedSkill);
+    const detectedSkill = await detectSkillWithHuggingFace(query);
 
-    let workers = [];
-
-    if (detectedSkill) {
-      const regexList = getSkillRegexList(detectedSkill);
-      workers = await Worker.find({ typeOfWork: { $in: regexList } }).select(
-        "-password",
-      );
-    } else {
-      const qRegex = new RegExp(escapeRegExp(query), "i");
-      workers = await Worker.find({
-        $or: [
-          { fullName: qRegex },
-          { name: qRegex },
-          { location: qRegex },
-          { typeOfWork: { $in: [qRegex] } },
-        ],
-      }).select("-password");
-    }
+    const workers = detectedSkill
+      ? await Worker.find({
+          typeOfWork: { $in: getSkillRegexList(detectedSkill) },
+        }).select("-password")
+      : [];
 
     return res.status(httpStatus.OK).json({ detectedSkill, workers });
   } catch (error) {
