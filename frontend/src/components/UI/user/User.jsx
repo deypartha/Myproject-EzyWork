@@ -23,8 +23,10 @@ function User() {
   const [detectedLanguage, setDetectedLanguage] = useState(null);
   const [capturedImage, setCapturedImage] = useState(null);
   const [isAnalyzingImage, setIsAnalyzingImage] = useState(false);
+  const [showCameraOptions, setShowCameraOptions] = useState(false);
   const mediaStreamRef = useRef(null);
   const videoRef = useRef(null);
+  const imageInputRef = useRef(null);
   const canvasRef = useRef(null);
   const recognitionRef = useRef(null);
   const finalTranscriptRef = useRef("");
@@ -427,12 +429,41 @@ function User() {
 
     // Convert to blob and store
     canvas.toBlob(async (blob) => {
+      if (!blob) return;
       const imageUrl = URL.createObjectURL(blob);
       setCapturedImage(imageUrl);
 
       // Send to AI for analysis
       await analyzeImageWithAI(blob);
     }, 'image/jpeg', 0.95);
+  };
+
+  const toggleCamera = async () => {
+    const desiredVideo = !isCameraOn;
+    const desiredAudio = isMicOn;
+    await startMedia({ video: desiredVideo, audio: desiredAudio });
+    setShowCameraOptions(false);
+  };
+
+  const openImagePicker = () => {
+    imageInputRef.current?.click();
+  };
+
+  const handleImageUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      alert("Please select a valid image file.");
+      event.target.value = "";
+      return;
+    }
+
+    const imageUrl = URL.createObjectURL(file);
+    setCapturedImage(imageUrl);
+    await analyzeImageWithAI(file);
+    event.target.value = "";
+    setShowCameraOptions(false);
   };
 
   // Send captured image to AI for problem detection
@@ -746,6 +777,26 @@ function User() {
     };
   }, [currentProblemId]);
 
+  useEffect(() => {
+    if (!socketRef.current) return;
+
+    const handlePaymentUpdated = (data) => {
+      if (data?.problemId && data.problemId !== currentProblemId) return;
+
+      fetchCurrentProblem();
+
+      if (data?.problem?.paymentStatus === "completed") {
+        alert(data?.message || "Payment completed successfully.");
+      }
+    };
+
+    socketRef.current.on("payment-updated", handlePaymentUpdated);
+
+    return () => {
+      socketRef.current.off("payment-updated", handlePaymentUpdated);
+    };
+  }, [currentProblemId]);
+
   // Listen for OTP verification completion event from worker flow
   useEffect(() => {
     if (!socketRef.current) return;
@@ -858,20 +909,43 @@ function User() {
 
               {/* Media Controls */}
               <div className="flex flex-wrap gap-3">
-                <button
-                  onClick={async () => {
-                    const desiredVideo = !isCameraOn;
-                    const desiredAudio = isMicOn;
-                    await startMedia({ video: desiredVideo, audio: desiredAudio });
-                  }}
-                  className={`flex items-center gap-2 px-6 py-3 rounded-xl font-medium transition-all ${isCameraOn
-                    ? 'bg-green-500 text-white shadow-lg'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                >
-                  <FaCamera className="text-lg" />
-                  <span>{isCameraOn ? 'Camera On' : 'Use Camera'}</span>
-                </button>
+                <div className="relative">
+                  <button
+                    onClick={() => setShowCameraOptions((prev) => !prev)}
+                    className={`flex items-center gap-2 px-6 py-3 rounded-xl font-medium transition-all ${isCameraOn
+                      ? 'bg-green-500 text-white shadow-lg'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                  >
+                    <FaCamera className="text-lg" />
+                    <span>{isCameraOn ? 'Camera On' : 'Use Camera / Image'}</span>
+                  </button>
+
+                  {showCameraOptions && (
+                    <div className="absolute left-0 mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-lg z-20 p-2 space-y-2">
+                      <button
+                        onClick={toggleCamera}
+                        className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm font-medium text-gray-700"
+                      >
+                        {isCameraOn ? 'Stop Camera' : 'Take Photo with Camera'}
+                      </button>
+                      <button
+                        onClick={openImagePicker}
+                        className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm font-medium text-gray-700"
+                      >
+                        Upload Image from Device
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleImageUpload}
+                />
 
                 <button
                   onClick={async () => {
@@ -952,7 +1026,7 @@ function User() {
                         </button>
                       </div>
                       <p className="text-sm text-gray-600">
-                        {isAnalyzingImage ? 'AI is analyzing your image...' : 'Image analyzed and added to description'}
+                        {isAnalyzingImage ? 'AI is analyzing your image...' : 'Image analyzed and added to description (any image is supported)'}
                       </p>
                     </div>
                   </div>
@@ -1254,13 +1328,21 @@ function User() {
                   <div className="flex items-start">
                     <span className="text-gray-600 w-24 text-sm">Status:</span>
                     <span className={`font-medium ${
-                      currentProblem?.status === 'completed' ? 'text-green-600' :
+                      currentProblem?.status === 'completed' && currentProblem?.paymentStatus === 'completed' ? 'text-green-600' :
+                      currentProblem?.status === 'completed' ? 'text-amber-600' :
                       currentProblem?.status === 'in_progress' ? 'text-orange-600' :
                       'text-blue-600'
                     }`}>
-                      {currentProblem?.status === 'completed' ? 'Resolved' :
+                      {currentProblem?.status === 'completed' && currentProblem?.paymentStatus === 'completed' ? 'Payment done' :
+                       currentProblem?.status === 'completed' ? 'Unpaid' :
                        currentProblem?.status === 'in_progress' ? 'In Progress' :
                        'Assigned'}
+                    </span>
+                  </div>
+                  <div className="flex items-start">
+                    <span className="text-gray-600 w-24 text-sm">Payment:</span>
+                    <span className={`font-medium ${currentProblem?.paymentStatus === 'completed' ? 'text-green-600' : 'text-amber-600'}`}>
+                      {currentProblem?.paymentStatus === 'completed' ? 'Completed' : 'Pending'}
                     </span>
                   </div>
                 </div>
@@ -1359,6 +1441,9 @@ function User() {
                       </p>
                       <p className="text-gray-600 mb-2">
                         Payment: <strong>{problem.paymentMethod || "N/A"}</strong>
+                      </p>
+                      <p className="text-gray-600 mb-2">
+                        Payment Status: <strong className={problem.paymentStatus === 'completed' ? 'text-green-500' : 'text-amber-500'}>{problem.paymentStatus === 'completed' ? 'Completed' : 'Pending'}</strong>
                       </p>
                     </div>
                     <div>

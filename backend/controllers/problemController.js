@@ -19,6 +19,41 @@ const parseAmount = (value) => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+const emitProblemUpdate = async (req, problem, eventName, message) => {
+  if (!req.io || !problem) return;
+
+  const eventData = {
+    message,
+    problemId: String(problem._id),
+    problem,
+  };
+
+  const rooms = new Set();
+  const assignedToId = problem.assignedTo?.toString?.() || String(problem.assignedTo || "");
+  const createdById = problem.createdBy?.toString?.() || String(problem.createdBy || "");
+
+  if (assignedToId) rooms.add(`worker-${assignedToId}`);
+  if (createdById) rooms.add(`user-${createdById}`);
+
+  try {
+    const worker = assignedToId ? await Worker.findById(assignedToId).select("email") : null;
+    if (worker?.email) rooms.add(`worker-email-${worker.email}`);
+  } catch (error) {
+    console.warn("Failed to resolve worker email for status event:", error.message);
+  }
+
+  try {
+    const user = createdById ? await User.findById(createdById).select("email") : null;
+    if (user?.email) rooms.add(`user-email-${user.email}`);
+  } catch (error) {
+    console.warn("Failed to resolve user email for status event:", error.message);
+  }
+
+  rooms.forEach((room) => {
+    req.io.to(room).emit(eventName, eventData);
+  });
+};
+
 export const createProblem = async (req, res) => {
   try {
     const { title, description, category, location, createdBy } = req.body;
@@ -117,10 +152,26 @@ export const acceptProblem = async (req, res) => {
       return res.status(404).json({ message: "Problem not found" });
     }
 
-    if (
-      problem.status !== "requested" ||
-      problem.assignedTo.toString() !== workerId
-    ) {
+    const assignedToId = problem.assignedTo?.toString();
+
+    if (problem.status === "open") {
+      problem.status = "assigned";
+      problem.assignedTo = workerId;
+      problem.assignedAt = new Date();
+      await problem.save();
+
+      if (req.io) {
+        req.io.to(`user-${problem.createdBy}`).emit("request-accepted", {
+          problem: problem,
+          message: "A worker accepted your job request",
+        });
+      }
+
+      await emitProblemUpdate(req, problem, "job-status-updated", "Job accepted successfully.");
+      return res.json({ message: "Problem accepted", problem });
+    }
+
+    if (problem.status !== "requested" || assignedToId !== workerId) {
       return res.status(400).json({
         message: "Problem not requested by this worker or already processed",
       });
@@ -129,6 +180,7 @@ export const acceptProblem = async (req, res) => {
     problem.status = "assigned";
     problem.assignedAt = new Date();
     await problem.save();
+    await emitProblemUpdate(req, problem, "job-status-updated", "Job accepted successfully.");
 
     // Notify the user who posted the problem
     if (req.io) {
@@ -167,6 +219,7 @@ export const bookProblem = async (req, res) => {
     }
     problem.status = "in_progress";
     await problem.save();
+    await emitProblemUpdate(req, problem, "job-status-updated", "Booking confirmed. Job is now in progress.");
 
     res.json({ message: "Problem booked successfully", problem });
   } catch (error) {
@@ -174,7 +227,7 @@ export const bookProblem = async (req, res) => {
   }
 };
 
-export const completeProblem = async (req, res, io) => {
+export const completeProblem = async (req, res) => {
   try {
     const { id } = req.params;
     const { otp } = req.body;
@@ -189,8 +242,12 @@ export const completeProblem = async (req, res, io) => {
     }
 
     problem.status = "completed";
+    if (problem.paymentStatus !== "completed") {
+      problem.paymentStatus = "pending";
+    }
     problem.completedAt = new Date();
     await problem.save();
+    await emitProblemUpdate(req, problem, "job-status-updated", "OTP matched. Payment is pending from the customer.");
 
     // Emit socket event to notify user that OTP is verified
     if (req.io) {
@@ -242,6 +299,7 @@ export const startProblem = async (req, res) => {
 
     problem.status = "in_progress";
     await problem.save();
+    await emitProblemUpdate(req, problem, "job-status-updated", "Worker started the job.");
 
     res.json({ message: "Problem started successfully", problem });
   } catch (error) {
@@ -302,6 +360,39 @@ export const markPaymentSuccess = async (req, res) => {
     problem.paymentId = paymentId || problem.paymentId;
     problem.paymentDate = new Date();
     await problem.save();
+
+    if (req.io) {
+      const eventData = {
+        message: "Payment completed successfully",
+        problemId: id,
+        problem,
+      };
+
+      const rooms = new Set();
+      const assignedToId = problem.assignedTo?.toString?.() || String(problem.assignedTo || "");
+      const createdById = problem.createdBy?.toString?.() || String(problem.createdBy || "");
+
+      if (assignedToId) rooms.add(`worker-${assignedToId}`);
+      if (createdById) rooms.add(`user-${createdById}`);
+
+      try {
+        const worker = assignedToId ? await Worker.findById(assignedToId).select("email") : null;
+        if (worker?.email) rooms.add(`worker-email-${worker.email}`);
+      } catch (error) {
+        console.warn("Failed to resolve worker email for payment event:", error.message);
+      }
+
+      try {
+        const user = createdById ? await User.findById(createdById).select("email") : null;
+        if (user?.email) rooms.add(`user-email-${user.email}`);
+      } catch (error) {
+        console.warn("Failed to resolve user email for payment event:", error.message);
+      }
+
+      rooms.forEach((room) => {
+        req.io.to(room).emit("payment-updated", eventData);
+      });
+    }
 
     return res.json({ message: "Payment marked as completed", problem });
   } catch (error) {

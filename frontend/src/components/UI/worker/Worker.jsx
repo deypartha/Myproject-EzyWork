@@ -31,7 +31,7 @@ import {
   Pie,
   Cell,
 } from "recharts";
-import { validOtp } from "../../../utils/otp.validator";
+import { validOtp } from "../../../utils/otp.validator"
 
 const STATUS_COLORS = {
   open: "#64748b",
@@ -52,6 +52,19 @@ const STATUS_LABELS = {
 };
 
 const CATEGORY_COLORS = ["#10b981", "#6366f1", "#f59e0b", "#ef4444", "#14b8a6", "#0ea5e9"];
+
+const normalizeSkillList = (skills) => {
+  if (Array.isArray(skills)) return skills.filter(Boolean);
+  return skills ? [skills] : [];
+};
+
+const getPrimaryWorkerCategory = (skills) => normalizeSkillList(skills)[0] || "";
+
+const getPaidEarnings = (jobs = []) =>
+  jobs.reduce((total, job) => {
+    if (job.paymentStatus !== "completed") return total;
+    return total + Number(job.amount || 0);
+  }, 0);
 
 const formatDateTime = (value) => {
   if (!value) return "Not set";
@@ -91,6 +104,27 @@ const buildCategoryData = (jobs = []) => {
   return Object.entries(counts).map(([name, value]) => ({ name, value }));
 };
 
+const getPaymentState = (job = {}) => {
+  if (job.status !== "completed") {
+    return {
+      label: job.paymentStatus === "completed" ? "Payment done" : "Payment pending",
+      tone: job.paymentStatus === "completed" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-700",
+    };
+  }
+
+  if (job.paymentStatus === "completed") {
+    return {
+      label: "Payment done",
+      tone: "bg-emerald-100 text-emerald-700",
+    };
+  }
+
+  return {
+    label: "Payment pending",
+    tone: "bg-amber-100 text-amber-700",
+  };
+};
+
 // --- Utility small components ---
 function Badge({ children, className = "" }) {
   return (
@@ -106,12 +140,11 @@ export default function WorkerDashboard() {
   const [online, setOnline] = useState(false);
   const [history, setHistory] = useState([]);
   const [otpModal, setOtpModal] = useState({ open: false, jobId: null });
-  const [paymentModal, setPaymentModal] = useState({ open: false, jobId: null });
-  const [paymentSuccess, setPaymentSuccess] = useState({ open: false, message: "" });
   const [withdrawModalOpen, setWithdrawModalOpen] = useState(false);
+  const [paymentSuccess, setPaymentSuccess] = useState({ open: false, message: "" });
   const [upiId, setUpiId] = useState("");
   const [fraudReportOpen, setFraudReportOpen] = useState(false);
-  const [walletBalance, setWalletBalance] = useState(1230);
+  const [walletBalance, setWalletBalance] = useState(0);
   const [workerLocation, setWorkerLocation] = useState({
     latitude: null,
     longitude: null,
@@ -126,7 +159,7 @@ export default function WorkerDashboard() {
   const socketRef = useRef(null); // Socket reference
   const [assignedProblems, setAssignedProblems] = useState([]);
   const [refreshTrigger, setRefreshTrigger] = useState(false); // Trigger FindWorkSection refresh
-  const workerId = workerRecord?._id || user?.id || user?._id;
+  const workerId = workerRecord?._id;
 
   // Initialize Socket
   useEffect(() => {
@@ -206,7 +239,11 @@ export default function WorkerDashboard() {
 
   // Fetch assigned problems
   const fetchAssignedProblems = async () => {
-    if (!workerId) return;
+    if (!workerId) {
+      setAssignedProblems([]);
+      setHistory([]);
+      return;
+    }
     try {
       const res = await fetch(`${API_BASE_URL}/api/problems/worker/${workerId}`);
       if (res.ok) {
@@ -221,7 +258,13 @@ export default function WorkerDashboard() {
 
   useEffect(() => {
     fetchAssignedProblems();
+    const interval = setInterval(fetchAssignedProblems, 5000);
+    return () => clearInterval(interval);
   }, [workerId]);
+
+  useEffect(() => {
+    setWalletBalance(getPaidEarnings(assignedProblems));
+  }, [assignedProblems]);
 
   // Handle Online Toggle
   const handleToggleOnline = async () => {
@@ -255,15 +298,16 @@ export default function WorkerDashboard() {
       // If we don't have profile, we can't join specific rooms.
       // Let's join a generic "workers" room for now, or assume "Plumber" for testing if missing.
 
-      const skills = workerProfile?.typeOfWork || ["Plumber", "Electrician", "Painter"]; // Fallback
+      const skills = normalizeSkillList(workerProfile?.typeOfWork);
+      const workerSkills = skills.length ? skills : ["Plumber", "Electrician", "Painter"]; // Fallback
 
       if (newStatus) {
-        skills.forEach(skill => {
+        workerSkills.forEach(skill => {
           socketRef.current.emit("join-room", skill);
           console.log("Joined room:", skill);
         });
       } else {
-        skills.forEach(skill => {
+        workerSkills.forEach(skill => {
           socketRef.current.emit("leave-room", skill);
         });
       }
@@ -293,25 +337,43 @@ export default function WorkerDashboard() {
     return () => {
       socketRef.current.off("new-problem");
     };
-  }, []);
+  }, [workerId]);
 
   // Listen for Worker Requests
   useEffect(() => {
     if (!socketRef.current) return;
 
-    socketRef.current.on("worker-request", (data) => {
+    const handleWorkerRequest = (data) => {
       console.log("Worker Request Received:", data);
       alert(`New Job Request: ${data.problem.title}`);
-      
+
       // Refresh assigned problems to show the request
       fetchAssignedProblems();
       setRefreshTrigger((prev) => !prev);
-    });
+    };
+
+    const handleRealtimeProblemUpdate = (data) => {
+      fetchAssignedProblems();
+      setRefreshTrigger((prev) => !prev);
+
+      if (data?.problem?.paymentStatus === "completed") {
+        setPaymentSuccess({
+          open: true,
+          message: data.message || "Customer payment completed. Your wallet has been updated.",
+        });
+      }
+    };
+
+    socketRef.current.on("worker-request", handleWorkerRequest);
+    socketRef.current.on("payment-updated", handleRealtimeProblemUpdate);
+    socketRef.current.on("job-status-updated", handleRealtimeProblemUpdate);
 
     return () => {
-      socketRef.current.off("worker-request");
+      socketRef.current.off("worker-request", handleWorkerRequest);
+      socketRef.current.off("payment-updated", handleRealtimeProblemUpdate);
+      socketRef.current.off("job-status-updated", handleRealtimeProblemUpdate);
     };
-  }, []);
+  }, [workerId]);
 
   // Define menuItems array
   const menuItems = [
@@ -434,7 +496,7 @@ export default function WorkerDashboard() {
   const saveLocationPreference = async (city) => {
     if (!user) return;
     try {
-      const res = await fetch(`${API_BASE_URL}/api/workers/${user.id}`, {
+      const res = await fetch(`${API_BASE_URL}/api/workers/${user.id || user._id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ location: city })
@@ -456,49 +518,12 @@ export default function WorkerDashboard() {
     }
   };
 
-  // Fetch city and country using reverse geocoding API
-  // Using OpenStreetMap Nominatim (free, reliable, no API key needed)
-  // NOTE: This is NOT used as primary - registered location takes priority
-  const fetchCityAndCountry = async (latitude, longitude) => {
-    try {
-      // Try Nominatim first (open street map - no rate limiting for reasonable use)
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`,
-        {
-          headers: {
-            'Accept': 'application/json',
-            'User-Agent': 'EzyWork-App' // Nominatim requires User-Agent
-          }
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      // Extract city and country from Nominatim response
-      // Try to get the smallest locality first (village > town > city)
-      const address = data.address || {};
-      const city = address.village || address.town || address.city || address.county || "Unknown";
-      const country = address.country || "Unknown";
-
-      return { city, country };
-    } catch (error) {
-      console.error("Error fetching city and country:", error);
-      return { city: "Unknown", country: "Unknown" };
-    }
-  };
-
-  // Mark job as completed: open OTP modal
-  function handleEndJob(jobId) {
-    setOtpModal({ open: true, jobId });
-  }
-
   // Handle reject job
   async function handleRejectJob(problemId) {
-    if (!user) return false;
+    if (!workerId) {
+      alert("Worker profile is still loading. Please try again in a moment.");
+      return false;
+    }
     try {
       const res = await fetch(`${API_BASE_URL}/api/problems/${problemId}/reject`, {
         method: "PUT",
@@ -541,8 +566,8 @@ export default function WorkerDashboard() {
       });
 
       if (res.ok) {
-        const data = await res.json();
-        alert("Job completed successfully! Both you and the customer have been notified.");
+        await res.json();
+        alert("OTP matched. Job completed, but payment is still pending until the customer pays.");
         fetchAssignedProblems();
         setRefreshTrigger((prev) => !prev);
       } else {
@@ -557,31 +582,6 @@ export default function WorkerDashboard() {
     setOtpModal({ open: false, jobId: null });
   }
 
-  function handlePayment(jobId, method) {
-    const job = history.find((h) => h.id === jobId);
-    if (!job) return;
-    const amount = job.amount || 0;
-
-    setHistory((h) =>
-      h.map((j) =>
-        j.id === jobId ? { ...j, status: "completed", earned: amount } : j
-      )
-    );
-
-    if (method === "cash") {
-      setWalletBalance((b) => Math.max(0, b - amount));
-    } else {
-      setWalletBalance((b) => b + amount);
-    }
-
-    setPaymentModal({ open: false, jobId: null });
-    setPaymentSuccess({
-      open: true,
-      message:
-        "Payment successful. Receipt sent to both worker and customer.",
-    });
-  }
-
   // Simulate UPI withdraw
   function submitWithdraw(amount) {
     if (!upiId) {
@@ -590,13 +590,26 @@ export default function WorkerDashboard() {
     }
     // simulate success
     setWithdrawModalOpen(false);
-    alert(`Withdrawal of $${amount} initiated to ${upiId}`);
+    alert(`Withdrawal of INR ${amount} initiated to ${upiId}`);
   }
 
   // Fraud report submit
+  function submitFraudReport(details) {
+    if (!details.trim()) {
+      alert("Please add report details before submitting.");
+      return;
+    }
+
+    setFraudReportOpen(false);
+    alert("Fraud report submitted. Support will review it shortly.");
+  }
+
   // Handle Job Acceptance
   const handleAcceptJob = async (jobId) => {
-    if (!user) return false;
+    if (!workerId) {
+      alert("Worker profile is still loading. Please try again in a moment.");
+      return false;
+    }
     try {
       const res = await fetch(`${API_BASE_URL}/api/problems/${jobId}/accept`, {
         method: "PUT",
@@ -659,8 +672,8 @@ export default function WorkerDashboard() {
             <div className="flex items-center gap-3">
               <img src="https://via.placeholder.com/44" alt="user" className="rounded-full" />
               <div>
-                <p className="font-semibold text-gray-800">John Doe</p>
-                <p className="text-xs text-gray-500">Verified Worker</p>
+                <p className="font-semibold text-gray-800">{user.name}</p>
+                <p className="text-xs text-gray-500">✅ Verified Worker</p>
               </div>
             </div>
             <button
@@ -673,8 +686,8 @@ export default function WorkerDashboard() {
             </button>
           </div>
           <div className="flex items-center justify-between">
-            <button onClick={() => setLocationModalOpen(true)} className="text-sm text-gray-600 hover:text-gray-800">Settings</button>
-            <button className="text-red-500 hover:bg-red-50 px-2 py-1 rounded-md">Logout</button>
+            <button onClick={() => setLocationModalOpen(true)} className="text-sm text-gray-600 hover:text-gray-80">⚙️ Settings</button>
+            
           </div>
         </div>
       </aside>
@@ -714,7 +727,7 @@ export default function WorkerDashboard() {
           />
         )}
         {activeSection === "wallet" && (
-          <WalletSection balance={walletBalance} onWithdrawClick={() => setWithdrawModalOpen(true)} />
+          <WalletSection jobs={assignedProblems} balance={walletBalance} onWithdrawClick={() => setWithdrawModalOpen(true)} />
         )}
         {activeSection === "performance" && (
           <PerformanceSection jobs={history} />
@@ -728,7 +741,7 @@ export default function WorkerDashboard() {
         )}
         {activeSection === "find-work" && (
           <FindWorkSection
-            workerCategory={workerProfile?.typeOfWork ? workerProfile.typeOfWork[0] : ""}
+            workerCategory={getPrimaryWorkerCategory(workerProfile?.typeOfWork)}
             onAccept={handleAcceptJob}
             onReject={handleRejectJob}
             refreshTrigger={refreshTrigger}
@@ -736,23 +749,6 @@ export default function WorkerDashboard() {
         )}
       </main>
 
-      {/* OTP Modal */}
-      {otpModal.open && (
-        <OtpModal
-          jobId={otpModal.jobId}
-          onClose={() => setOtpModal({ open: false, jobId: null })}
-          onVerify={(otp) => verifyOtp(otpModal.jobId, otp)}
-        />
-      )}
-
-      {/* Payment Modal */}
-      {paymentModal.open && (
-        <PaymentModal
-          job={history.find((h) => h.id === paymentModal.jobId)}
-          onClose={() => setPaymentModal({ open: false, jobId: null })}
-          onConfirm={(method) => handlePayment(paymentModal.jobId, method)}
-        />
-      )}
 
       {/* Withdraw Modal */}
       {withdrawModalOpen && (
@@ -767,6 +763,15 @@ export default function WorkerDashboard() {
       {/* Fraud Report Modal */}
       {fraudReportOpen && (
         <FraudReportModal onClose={() => setFraudReportOpen(false)} onSubmit={(d) => submitFraudReport(d)} />
+      )}
+
+      {/* OTP Modal */}
+      {otpModal.open && (
+        <OtpModal
+          jobId={otpModal.jobId}
+          onClose={() => setOtpModal({ open: false, jobId: null })}
+          onVerify={(otp) => verifyOtp(otpModal.jobId, otp)}
+        />
       )}
 
       {/* Payment Success Modal */}
@@ -865,7 +870,10 @@ function JobSection({ problems, onAcceptJob, onRejectJob, onCompleteJob, fetchAs
                       <span className="text-xs text-gray-400">{new Date(problem.createdAt).toLocaleDateString()}</span>
                     </div>
                     <p className="text-sm text-gray-500">{problem.createdBy?.name || "Customer"} • {problem.location?.city || "Unknown"}</p>
-                    <p className="text-xs text-gray-500 mt-1">Payment: {problem.paymentMethod || "N/A"}</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                      <span className="rounded-full bg-gray-100 px-2.5 py-1 text-gray-600">Method: {problem.paymentMethod || "N/A"}</span>
+                      <span className={`rounded-full px-2.5 py-1 ${getPaymentState(problem).tone}`}>{getPaymentState(problem).label}</span>
+                    </div>
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                       <Badge className="bg-blue-50 text-blue-700">OTP only for completion</Badge>
                       <Badge>{problem.status}</Badge>
@@ -895,7 +903,7 @@ function JobSection({ problems, onAcceptJob, onRejectJob, onCompleteJob, fetchAs
                     {problem.status === 'in_progress' && (
                       <button 
                         onClick={() => onCompleteJob(problem._id)}
-                        className="px-3 py-1 rounded-md bg-blue-600 text-white text-sm"
+                        className="px-3 py-1 rounded-md bg-blue-600 text-white text-sm pointer-events-auto"
                       >
                         Complete Job
                       </button>
@@ -911,6 +919,7 @@ function JobSection({ problems, onAcceptJob, onRejectJob, onCompleteJob, fetchAs
         <div className="bg-white p-6 rounded-xl shadow-sm">
           <h3 className="font-semibold mb-4">Recent Completed Jobs</h3>
           <div className="space-y-3">
+            {completedProblems.length === 0 && <p className="text-sm text-gray-500">No completed jobs yet.</p>}
             {completedProblems.slice(0, 5).map((problem) => (
               <div key={problem._id} className="border p-4 rounded-lg">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -918,8 +927,14 @@ function JobSection({ problems, onAcceptJob, onRejectJob, onCompleteJob, fetchAs
                     <h4 className="font-medium">{problem.title}</h4>
                     <p className="text-sm text-gray-500">{problem.createdBy?.name || "Customer"}</p>
                     <p className="text-xs text-gray-500">Completed: {new Date(problem.completedAt).toLocaleDateString()}</p>
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                      <span className="rounded-full bg-gray-100 px-2.5 py-1 text-gray-600">Method: {problem.paymentMethod || "N/A"}</span>
+                      <span className={`rounded-full px-2.5 py-1 ${getPaymentState(problem).tone}`}>{getPaymentState(problem).label}</span>
+                    </div>
                   </div>
-                  <Badge className="bg-green-100 text-green-800">Completed</Badge>
+                  <Badge className={problem.paymentStatus === "completed" ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"}>
+                    {problem.paymentStatus === "completed" ? "Completed & paid" : "Payment pending"}
+                  </Badge>
                 </div>
               </div>
             ))}
@@ -943,44 +958,38 @@ function JobSection({ problems, onAcceptJob, onRejectJob, onCompleteJob, fetchAs
 }
 
 /* ------------------ Wallet Section ------------------ */
-function WalletSection({ balance, onWithdrawClick }) {
-  const recent = [
-    { id: 1, text: "+ $200 — Job Completed", date: "2025-11-10" },
-    { id: 2, text: "- $50 — Withdrawal", date: "2025-11-09" },
-  ];
+function WalletSection({ jobs, balance, onWithdrawClick }) {
+  const paidJobs = jobs.filter((job) => job.paymentStatus === "completed");
+  const pendingJobs = jobs.filter((job) => job.status === "completed" && job.paymentStatus !== "completed");
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
       <div className="bg-white p-6 rounded-xl shadow-sm">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold">Wallet & Balance</h3>
           <Badge>Secure</Badge>
         </div>
-        <p className="text-4xl font-bold">${balance}</p>
-        <p className="text-sm text-gray-500 mb-4">Available Balance</p>
-        <div className="flex gap-3">
+        <p className="text-4xl font-bold">INR {balance.toFixed(0)}</p>
+        <p className="text-sm text-gray-500 mb-4">Available balance from paid jobs only</p>
+        <div className="flex flex-wrap gap-3">
           <button onClick={() => onWithdrawClick()} className="bg-green-600 text-white px-4 py-2 rounded-md">Withdraw</button>
           <button className="bg-white border px-4 py-2 rounded-md">Transaction History</button>
         </div>
       </div>
 
       <div className="bg-white p-6 rounded-xl shadow-sm">
-        <h3 className="font-semibold mb-3">Payment Methods</h3>
-        <p className="text-sm text-gray-500 mb-4">Connect UPI or bank to withdraw automatically.</p>
-        <div className="space-y-2">
-          <div className="flex items-center justify-between border p-3 rounded-md">
-            <div>
-              <p className="font-medium">UPI (Google Pay / PhonePe)</p>
-              <p className="text-xs text-gray-500">Fast & secure</p>
-            </div>
-            <button className="px-3 py-1 rounded-md bg-green-50 text-green-700">Connect</button>
+        <h3 className="font-semibold mb-3">Payment Sync</h3>
+        <p className="text-sm text-gray-500 leading-6">
+          Jobs stay marked as unpaid until the customer finishes payment. The dashboard refreshes automatically when payment is received.
+        </p>
+        <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+          <div className="rounded-lg border p-3">
+            <p className="text-gray-500">Paid jobs</p>
+            <p className="mt-1 text-2xl font-semibold text-gray-900">{paidJobs.length}</p>
           </div>
-          <div className="flex items-center justify-between border p-3 rounded-md">
-            <div>
-              <p className="font-medium">Bank Transfer</p>
-              <p className="text-xs text-gray-500">Standard 2-3 days</p>
-            </div>
-            <button className="px-3 py-1 rounded-md bg-white border">Connect</button>
+          <div className="rounded-lg border p-3">
+            <p className="text-gray-500">Payment pending</p>
+            <p className="mt-1 text-2xl font-semibold text-amber-600">{pendingJobs.length}</p>
           </div>
         </div>
       </div>
@@ -995,13 +1004,14 @@ function PerformanceSection({ jobs }) {
   const summary = jobs.reduce(
     (acc, job) => {
       acc.total += 1;
-      acc.earnings += Number(job.amount || 0);
+      if (job.paymentStatus === "completed") acc.earnings += Number(job.amount || 0);
       if (job.status === "completed") acc.completed += 1;
+      if (job.status === "completed" && job.paymentStatus !== "completed") acc.paymentPending += 1;
       if (job.status === "requested") acc.requested += 1;
       if (job.status === "assigned" || job.status === "in_progress") acc.active += 1;
       return acc;
     },
-    { total: 0, completed: 0, requested: 0, active: 0, earnings: 0 },
+    { total: 0, completed: 0, requested: 0, active: 0, paymentPending: 0, earnings: 0 },
   );
 
   return (
@@ -1020,8 +1030,9 @@ function PerformanceSection({ jobs }) {
           <p className="mt-2 text-3xl font-semibold text-gray-900">{summary.completed}</p>
         </div>
         <div className="rounded-xl border bg-white p-4 shadow-sm">
-          <p className="text-sm text-gray-500">Live earnings snapshot</p>
-          <p className="mt-2 text-3xl font-semibold text-gray-900">${summary.earnings.toFixed(0)}</p>
+          <p className="text-sm text-gray-500">Paid earnings</p>
+          <p className="mt-2 text-3xl font-semibold text-gray-500">INR {summary.earnings.toFixed(0)}</p>
+          <p className="mt-1 text-xs text-amber-600">{summary.paymentPending} payment pending</p>
         </div>
       </div>
 
@@ -1066,7 +1077,7 @@ function PerformanceSection({ jobs }) {
         <div className="grid gap-3 md:grid-cols-3">
           <div className="rounded-lg border p-3 text-sm text-gray-600">Accept moves a job from <strong>requested</strong> to <strong>assigned</strong>.</div>
           <div className="rounded-lg border p-3 text-sm text-gray-600">Start moves a job from <strong>assigned</strong> to <strong>in progress</strong>.</div>
-          <div className="rounded-lg border p-3 text-sm text-gray-600">Complete requires OTP; reject returns a job to the open pool.</div>
+          <div className="rounded-lg border p-3 text-sm text-gray-600">Complete requires OTP; payment stays pending until the customer pays.</div>
         </div>
       </div>
     </div>
@@ -1188,8 +1199,10 @@ function HistorySection({ jobs }) {
                 </div>
                 <div className="min-w-32 rounded-lg bg-gray-50 p-3 text-right">
                   <p className="text-xs uppercase tracking-wide text-gray-500">Amount</p>
-                  <p className="text-lg font-semibold text-gray-900">${Number(job.amount || 0).toFixed(0)}</p>
-                  <p className="text-xs text-gray-500">Payment: {job.paymentStatus || "pending"}</p>
+                  <p className="text-lg font-semibold text-gray-200">INR {Number(job.amount || 0).toFixed(0)}</p>
+                  <p className="text-xs text-gray-500">
+                    Payment: {job.paymentStatus === "completed" ? "completed" : "pending"}
+                  </p>
                 </div>
               </div>
             </article>
@@ -1404,6 +1417,7 @@ function OtpModal({ jobId, onClose, onVerify }) {
       <div className="bg-white p-6 rounded-lg w-96 shadow-lg">
         <h4 className="font-semibold mb-2">Enter OTP to complete job</h4>
         <p className="text-sm text-gray-500 mb-4">Ask the customer for the 6-digit OTP and enter it here.</p>
+        {jobId && <p className="mb-3 text-xs text-gray-400">Job ID: {jobId}</p>}
         <input
           value={otp}
           onChange={(e) => {
@@ -1425,86 +1439,17 @@ function OtpModal({ jobId, onClose, onVerify }) {
   );
 }
 
-/* ------------------ Payment Modal ------------------ */
-function PaymentModal({ job, onClose, onConfirm }) {
-  const [method, setMethod] = useState("cash");
-
-  if (!job) return null;
-
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white p-6 rounded-lg w-104 shadow-lg">
-        <h4 className="font-semibold mb-2">Collect Payment</h4>
-        <p className="text-sm text-gray-500 mb-3">
-          {job.title} • {job.customer}
-        </p>
-        <div className="bg-gray-50 border rounded-md p-3 mb-4">
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-gray-600">Amount Due</span>
-            <span className="font-semibold">${job.amount || 0}</span>
-          </div>
-        </div>
-
-        <div className="space-y-2 mb-4">
-          <label className="text-sm font-medium">Payment Mode</label>
-          <div className="grid grid-cols-3 gap-2">
-            <button
-              onClick={() => setMethod("cash")}
-              className={`px-3 py-2 rounded-md border text-sm ${method === "cash" ? "bg-emerald-600 text-white border-emerald-600" : "bg-white"}`}
-            >
-              Cash
-            </button>
-            <button
-              onClick={() => setMethod("upi")}
-              className={`px-3 py-2 rounded-md border text-sm ${method === "upi" ? "bg-emerald-600 text-white border-emerald-600" : "bg-white"}`}
-            >
-              UPI
-            </button>
-            <button
-              onClick={() => setMethod("qr")}
-              className={`px-3 py-2 rounded-md border text-sm ${method === "qr" ? "bg-emerald-600 text-white border-emerald-600" : "bg-white"}`}
-            >
-              QR
-            </button>
-          </div>
-        </div>
-
-        {(method === "upi" || method === "qr") && (
-          <div className="border rounded-md p-3 mb-4">
-            <p className="text-xs text-gray-500 mb-2">Scan to pay</p>
-            <div className="bg-gray-100 rounded-md h-36 flex items-center justify-center text-xs text-gray-400">
-              QR CODE
-            </div>
-            <p className="text-xs text-gray-500 mt-2">UPI ID: worker@upi</p>
-          </div>
-        )}
-
-        {method === "cash" && (
-          <p className="text-xs text-gray-500 mb-4">
-            Cash collected from customer. Same amount will be withdrawn from worker wallet.
-          </p>
-        )}
-
-        <div className="flex justify-end gap-3">
-          <button onClick={onClose} className="px-3 py-2 rounded-md border">Cancel</button>
-          <button onClick={() => onConfirm(method)} className="px-4 py-2 rounded-md bg-emerald-600 text-white">
-            Confirm Payment
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ------------------ Payment Success Modal ------------------ */
 function PaymentSuccessModal({ message, onClose }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white p-6 rounded-lg w-96 shadow-lg">
-        <h4 className="font-semibold mb-2">Payment Successful</h4>
-        <p className="text-sm text-gray-600 mb-4">{message}</p>
+      <div className="w-96 rounded-lg bg-white p-6 shadow-lg">
+        <h4 className="font-semibold mb-2">Payment received</h4>
+        <p className="text-sm text-gray-500 mb-4">{message}</p>
         <div className="flex justify-end">
-          <button onClick={onClose} className="px-4 py-2 rounded-md bg-emerald-600 text-white">Done</button>
+          <button onClick={onClose} className="rounded-md bg-green-600 px-4 py-2 text-white">
+            Done
+          </button>
         </div>
       </div>
     </div>

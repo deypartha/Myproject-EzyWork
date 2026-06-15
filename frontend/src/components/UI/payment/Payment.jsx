@@ -10,6 +10,7 @@ function Payment() {
   const state = location.state || {};
   const [problem, setProblem] = useState(state.problem || null);
   const problemId = state.problemId || problem?._id || null;
+  const paymentDone = problem?.paymentStatus === "completed";
 
   const initialAmount = useMemo(() => {
     if (typeof state.amount === "number") return String(state.amount);
@@ -93,6 +94,12 @@ function Payment() {
   };
 
   const handlePayment = async () => {
+    if (paymentDone) {
+      alert("This booking is already paid.");
+      navigate("/user");
+      return;
+    }
+
     const parsedAmount = Number(amount);
     if (!parsedAmount || parsedAmount <= 0) {
       alert("Payment amount is missing");
@@ -206,30 +213,49 @@ function Payment() {
   };
 
   return (
-    <div className="w-full max-w-lg mt-8 bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-      <h1 className="text-2xl font-bold text-gray-900">Payment</h1>
-      <p className="text-sm text-gray-600 mt-1">
-        Complete your payment after OTP verification.
-      </p>
-
-      {problem?.title && (
-        <p className="mt-4 text-sm text-gray-700">
-          <span className="font-semibold">Service:</span> {problem.title}
-        </p>
-      )}
-
-      <div className="mt-4 rounded-lg bg-gray-50 border border-gray-200 p-4">
-        <p className="text-sm text-gray-600">Fixed amount to pay</p>
-        <p className="text-2xl font-bold text-gray-900">INR {amount || "0"}</p>
+    <div className="w-full items-center max-w-2xl mt-6 overflow-hidden rounded-2xl border border-gray-200 bg-gray-800 shadow-sm">
+      <div className="bg-[#0b2545] px-6 py-5 text-white sm:px-8">
+        <h1 className="text-2xl font-bold">Payment</h1>
+        <p className="mt-1 text-sm text-slate-200">Finalize the booking after OTP verification.</p>
       </div>
 
-      <button
-        onClick={handlePayment}
-        disabled={loading}
-        className="mt-5 w-full bg-[#0b2545] hover:bg-[#14365b] text-white font-semibold py-2.5 rounded-md transition-colors disabled:opacity-70"
-      >
-        {loading ? "Opening Razorpay..." : "Pay fixed amount with Razorpay"}
-      </button>
+      <div className="grid gap-4 p-6 sm:p-8 md:grid-cols-[1.2fr_0.8fr] md:items-start">
+        <div className="space-y-4">
+          {problem?.title && (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Service</p>
+              <p className="mt-1 text-lg font-semibold text-gray-200">{problem.title}</p>
+            </div>
+          )}
+
+          <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+            <p className="text-sm text-gray-600">Amount due</p>
+            <p className="mt-1 text-3xl font-bold text-gray-200">INR {amount || "0"}</p>
+          </div>
+
+          <div className="rounded-xl border border-gray-200 p-4">
+            <p className="text-sm font-semibold text-gray-200">Payment status</p>
+            <p className={`mt-1 text-sm ${paymentDone ? "text-emerald-600" : "text-amber-600"}`}>
+              {paymentDone ? "Already completed" : "Awaiting payment"}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex h-full flex-col justify-between rounded-xl bg-slate-700 p-4 sm:p-5">
+          <div className="space-y-3 text-sm text-gray-600">
+            <p>Secure Razorpay checkout</p>
+            <p>Responsive design for mobile and desktop</p>
+          </div>
+
+          <button
+            onClick={handlePayment}
+            disabled={loading || paymentDone}
+            className="mt-6 w-full rounded-lg bg-[#0b2545] px-4 py-3 font-semibold text-white transition-colors hover:bg-[#14365b] disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            {paymentDone ? "Payment completed" : loading ? "Opening Razorpay..." : "Pay with Razorpay"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

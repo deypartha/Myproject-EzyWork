@@ -112,6 +112,7 @@ function WorkerDetails() {
           />
           <input
             type="number"
+            min="0"
             placeholder="Years of Experience"
             name="yearsOfExperience"
             value={workerDetails.yearsOfExperience}
