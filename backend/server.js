@@ -8,6 +8,7 @@ import authRoutes from "./routes/authRoutes.js";
 import translateRoutes from "./routes/translateRoutes.js";
 import workerRoutes from "./routes/workerRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
+import Worker from "./models/Worker.js";
 
 import { createServer } from "http";
 import { Server } from "socket.io";
@@ -28,8 +29,8 @@ const io = new Server(httpServer, {
 
 // Prefer environment values, but allow defaults for local development.
 const PORT = process.env.PORT || 3000;
-const MONGO_URI =
-  process.env.MONGO_URI;
+const MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/ezywork";
+mongoose.set("bufferCommands", false);
 
 app.use(cors());
 app.use(express.json());
@@ -45,9 +46,43 @@ io.on("connection", (socket) => {
   console.log("New client connected:", socket.id);
 
   // Worker joins room based on skill
-  socket.on("join-room", (room) => {
+  socket.on("join-room", async (room) => {
     socket.join(room);
     console.log(`Socket ${socket.id} joined room: ${room}`);
+
+    // If a worker joins their unique worker-[id] room, set them online in DB and broadcast
+    if (room.startsWith("worker-") && !room.startsWith("worker-email-")) {
+      const workerId = room.replace("worker-", "");
+      if (mongoose.Types.ObjectId.isValid(workerId)) {
+        socket.workerId = workerId;
+        try {
+          const updatedWorker = await Worker.findByIdAndUpdate(
+            workerId,
+            { isOnline: true },
+            { new: true }
+          );
+          if (updatedWorker) {
+            console.log(`Worker ${updatedWorker.name} (${workerId}) set to ONLINE via socket connection`);
+            io.emit("worker-status-changed", {
+              workerId,
+              isOnline: true,
+              worker: {
+                _id: String(updatedWorker._id),
+                name: updatedWorker.name,
+                fullName: updatedWorker.fullName,
+                email: updatedWorker.email,
+                mobileNumber: updatedWorker.mobileNumber || updatedWorker.number,
+                typeOfWork: updatedWorker.typeOfWork,
+                location: updatedWorker.location,
+                yearsOfExperience: updatedWorker.yearsOfExperience,
+              }
+            });
+          }
+        } catch (err) {
+          console.error(`Error marking worker ${workerId} online on join-room:`, err);
+        }
+      }
+    }
   });
 
   // Worker leaves room
@@ -56,8 +91,37 @@ io.on("connection", (socket) => {
     console.log(`Socket ${socket.id} left room: ${room}`);
   });
 
-  socket.on("disconnect", () => {
+  socket.on("disconnect", async () => {
     console.log("Client disconnected:", socket.id);
+    if (socket.workerId) {
+      const workerId = socket.workerId;
+      try {
+        const updatedWorker = await Worker.findByIdAndUpdate(
+          workerId,
+          { isOnline: false },
+          { new: true }
+        );
+        if (updatedWorker) {
+          console.log(`Worker ${updatedWorker.name} (${workerId}) set to OFFLINE via socket disconnect`);
+          io.emit("worker-status-changed", {
+            workerId,
+            isOnline: false,
+            worker: {
+              _id: String(updatedWorker._id),
+              name: updatedWorker.name,
+              fullName: updatedWorker.fullName,
+              email: updatedWorker.email,
+              mobileNumber: updatedWorker.mobileNumber || updatedWorker.number,
+              typeOfWork: updatedWorker.typeOfWork,
+              location: updatedWorker.location,
+              yearsOfExperience: updatedWorker.yearsOfExperience,
+            }
+          });
+        }
+      } catch (err) {
+        console.error(`Error marking worker ${workerId} offline on disconnect:`, err);
+      }
+    }
   });
 });
 
@@ -65,7 +129,15 @@ if (MONGO_URI) {
   console.log("Mongo: connecting to", MONGO_URI.split("@").pop());
   mongoose
     .connect(MONGO_URI, { serverSelectionTimeoutMS: 10000 })
-    .then(() => console.log("MongoDB connected"))
+    .then(async () => {
+      console.log("MongoDB connected");
+      try {
+        await Worker.updateMany({}, { isOnline: false });
+        console.log("Reset all workers' online status to offline on boot");
+      } catch (err) {
+        console.error("Failed to reset workers online status on boot:", err);
+      }
+    })
     .catch((err) => {
       console.error("MongoDB connection error:", err);
       // don't exit the process; allow the server to run for frontend/dev work

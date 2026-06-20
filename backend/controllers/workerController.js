@@ -99,38 +99,62 @@ const normalizeSkillName = (skill = "") => {
   return skill;
 };
 
+const detectSkillLocally = (text = "") => {
+  const normalizedText = String(text).toLowerCase();
+  for (const [canonical, aliases] of Object.entries(SKILL_ALIASES)) {
+    for (const alias of aliases) {
+      if (normalizedText.includes(alias.toLowerCase())) {
+        return canonical;
+      }
+    }
+  }
+  return null;
+};
+
 const detectSkillWithHuggingFace = async (text = "") => {
+  const queryText = String(text || "").trim();
+  if (!queryText) return null;
+
   const apiKey = process.env.HUGGINGFACE_API_KEY || process.env.HF_API_KEY;
-  if (!apiKey || !text?.trim()) return null;
-
-  const response = await fetch(
-    "https://api-inference.huggingface.co/models/facebook/bart-large-mnli",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        inputs: text,
-        parameters: {
-          candidate_labels: Object.keys(SKILL_ALIASES),
-          multi_label: false,
-        },
-        options: { wait_for_model: true },
-      }),
-    },
-  );
-
-  if (!response.ok) {
-    return null;
+  if (!apiKey) {
+    console.warn("Hugging Face API key not provided — using local keyword matching fallback");
+    return detectSkillLocally(queryText);
   }
 
-  const data = await response.json();
-  const bestLabel = data?.labels?.[0];
-  if (!bestLabel) return null;
+  try {
+    const response = await fetch(
+      "https://api-inference.huggingface.co/models/facebook/bart-large-mnli",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          inputs: queryText,
+          parameters: {
+            candidate_labels: Object.keys(SKILL_ALIASES),
+            multi_label: false,
+          },
+          options: { wait_for_model: true },
+        }),
+      },
+    );
 
-  return normalizeSkillName(bestLabel);
+    if (!response.ok) {
+      console.warn(`Hugging Face API error (status: ${response.status}) — using local keyword matching fallback`);
+      return detectSkillLocally(queryText);
+    }
+
+    const data = await response.json();
+    const bestLabel = data?.labels?.[0];
+    if (!bestLabel) return detectSkillLocally(queryText);
+
+    return normalizeSkillName(bestLabel);
+  } catch (err) {
+    console.warn("Hugging Face lookup failed — using local keyword matching fallback:", err.message);
+    return detectSkillLocally(queryText);
+  }
 };
 
 const getSkillRegexList = (skill = "") => {
@@ -257,7 +281,7 @@ const getAllWorkers = async (req, res) => {
   }
 };
 
-// Get workers by type
+// Get workers by type if online
 const getWorkersByType = async (req, res) => {
   try {
     const { type } = req.params;
@@ -268,7 +292,8 @@ const getWorkersByType = async (req, res) => {
           ? regexList
           : [new RegExp(`^${escapeRegExp(type)}$`, "i")],
       },
-    }).select("-password");
+      isOnline: true,
+    }).select("-password").$where("this.isOnline === true");
     res.status(httpStatus.OK).json(workers);
   } catch (error) {
     res.status(httpStatus.INTERNAL_SERVER_ERROR).json({
@@ -313,6 +338,7 @@ const searchWorkers = async (req, res) => {
     const workers = detectedSkill
       ? await Worker.find({
           typeOfWork: { $in: getSkillRegexList(detectedSkill) },
+          isOnline: true,
         }).select("-password")
       : [];
 
@@ -361,6 +387,26 @@ const toggleOnline = async (req, res) => {
     }
 
     await worker.save();
+
+    // SOCKET.IO: Emit event to notify all connected clients
+    if (req.io) {
+      req.io.emit("worker-status-changed", {
+        workerId: String(worker._id),
+        isOnline: worker.isOnline,
+        worker: {
+          _id: String(worker._id),
+          name: worker.name,
+          fullName: worker.fullName,
+          email: worker.email,
+          mobileNumber: worker.mobileNumber || worker.number,
+          typeOfWork: worker.typeOfWork,
+          location: worker.location,
+          yearsOfExperience: worker.yearsOfExperience,
+        }
+      });
+      console.log(`Socket.io: Emitted worker-status-changed for worker ${worker._id} (isOnline: ${worker.isOnline})`);
+    }
+
     res
       .status(httpStatus.OK)
       .json({ message: "Status updated", isOnline: worker.isOnline });

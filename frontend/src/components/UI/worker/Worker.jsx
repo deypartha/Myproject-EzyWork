@@ -156,6 +156,7 @@ export default function WorkerDashboard() {
   const { user } = useAuth(); // Get user from auth
   const [workerProfile, setWorkerProfile] = useState(null); // Store full worker profile
   const [workerRecord, setWorkerRecord] = useState(null); // Actual worker document reference
+  const [socket, setSocket] = useState(null);
   const socketRef = useRef(null); // Socket reference
   const [assignedProblems, setAssignedProblems] = useState([]);
   const [refreshTrigger, setRefreshTrigger] = useState(false); // Trigger FindWorkSection refresh
@@ -163,40 +164,68 @@ export default function WorkerDashboard() {
 
   // Initialize Socket
   useEffect(() => {
-    socketRef.current = io(API_BASE_URL);
+    const s = io(API_BASE_URL, {
+      transports: ["websocket", "polling"],
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+    });
+    setSocket(s);
+    socketRef.current = s;
+
+    s.on("connect", () => {
+      console.log("Socket connected! ID:", s.id);
+    });
+
+    s.on("disconnect", (reason) => {
+      console.log("Socket disconnected! Reason:", reason);
+    });
+
+    s.on("connect_error", (err) => {
+      console.error("Socket connection error:", err);
+    });
 
     return () => {
-      socketRef.current.disconnect();
+      s.disconnect();
     };
   }, []);
 
+  // Join rooms on connect/reconnect/worker details change
   useEffect(() => {
-    if (!socketRef.current) return;
+    if (!socket) return;
 
-    const joinRoom = (room) => {
-      if (!room) return;
-      socketRef.current.emit("join-room", room);
-      console.log("Joined room:", room);
+    const joinWorkerRooms = () => {
+      const rooms = new Set();
+      if (workerRecord?._id) rooms.add(`worker-${workerRecord._id}`);
+      if (user?.id) rooms.add(`worker-${user.id}`);
+      if (user?._id) rooms.add(`worker-${user._id}`);
+
+      const workerEmail = workerProfile?.email || user?.email;
+      if (workerEmail) rooms.add(`worker-email-${workerEmail}`);
+
+      if (workerProfile?.typeOfWork) {
+        if (Array.isArray(workerProfile.typeOfWork)) {
+          workerProfile.typeOfWork.forEach((skill) => rooms.add(skill));
+        } else {
+          rooms.add(workerProfile.typeOfWork);
+        }
+      }
+
+      rooms.forEach((room) => {
+        socket.emit("join-room", room);
+        console.log("Worker joined room:", room);
+      });
     };
 
-    const rooms = new Set();
-    if (workerRecord?._id) rooms.add(`worker-${workerRecord._id}`);
-    if (user?.id) rooms.add(`worker-${user.id}`);
-    if (user?._id) rooms.add(`worker-${user._id}`);
-
-    const workerEmail = workerProfile?.email || user?.email;
-    if (workerEmail) rooms.add(`worker-email-${workerEmail}`);
-
-    if (workerProfile?.typeOfWork) {
-      if (Array.isArray(workerProfile.typeOfWork)) {
-        workerProfile.typeOfWork.forEach((skill) => rooms.add(skill));
-      } else {
-        rooms.add(workerProfile.typeOfWork);
-      }
+    if (socket.connected) {
+      joinWorkerRooms();
     }
 
-    rooms.forEach(joinRoom);
-  }, [user?.id, user?._id, user?.email, workerRecord?._id, workerProfile?.email, workerProfile?.typeOfWork]);
+    socket.on("connect", joinWorkerRooms);
+    return () => {
+      socket.off("connect", joinWorkerRooms);
+    };
+  }, [socket, user?.id, user?._id, user?.email, workerRecord?._id, workerProfile?.email, workerProfile?.typeOfWork]);
 
   // Fetch Worker Profile to get Skills and Registered Location
   useEffect(() => {
@@ -227,6 +256,22 @@ export default function WorkerDashboard() {
               city: data.location,
               country: "India",
             }));
+          }
+          // Automatically set worker online on dashboard load
+          try {
+            await fetch(`${API_BASE_URL}/api/workers/toggle-online`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                email: data.email || user.email,
+                isOnline: true,
+                location: data.location ? { city: data.location } : null,
+              }),
+            });
+            setOnline(true);
+            console.log("Worker marked online automatically on dashboard mount");
+          } catch (err) {
+            console.warn("Failed to automatically mark worker online on load:", err);
           }
         }
       } catch (error) {
@@ -322,9 +367,9 @@ export default function WorkerDashboard() {
 
   // Listen for New Problems
   useEffect(() => {
-    if (!socketRef.current) return;
+    if (!socket) return;
 
-    socketRef.current.on("new-problem", (problem) => {
+    const handleNewProblem = (problem) => {
       console.log("New Problem Received:", problem);
       // Play notification sound?
       alert(`New Job Alert: ${problem.title}`);
@@ -332,16 +377,17 @@ export default function WorkerDashboard() {
       // Trigger FindWorkSection refresh by toggling refreshTrigger
       setRefreshTrigger(prev => !prev);
       fetchAssignedProblems();
-    });
-
-    return () => {
-      socketRef.current.off("new-problem");
     };
-  }, [workerId]);
+
+    socket.on("new-problem", handleNewProblem);
+    return () => {
+      socket.off("new-problem", handleNewProblem);
+    };
+  }, [socket, workerId]);
 
   // Listen for Worker Requests
   useEffect(() => {
-    if (!socketRef.current) return;
+    if (!socket) return;
 
     const handleWorkerRequest = (data) => {
       console.log("Worker Request Received:", data);
@@ -364,16 +410,16 @@ export default function WorkerDashboard() {
       }
     };
 
-    socketRef.current.on("worker-request", handleWorkerRequest);
-    socketRef.current.on("payment-updated", handleRealtimeProblemUpdate);
-    socketRef.current.on("job-status-updated", handleRealtimeProblemUpdate);
+    socket.on("worker-request", handleWorkerRequest);
+    socket.on("payment-updated", handleRealtimeProblemUpdate);
+    socket.on("job-status-updated", handleRealtimeProblemUpdate);
 
     return () => {
-      socketRef.current.off("worker-request", handleWorkerRequest);
-      socketRef.current.off("payment-updated", handleRealtimeProblemUpdate);
-      socketRef.current.off("job-status-updated", handleRealtimeProblemUpdate);
+      socket.off("worker-request", handleWorkerRequest);
+      socket.off("payment-updated", handleRealtimeProblemUpdate);
+      socket.off("job-status-updated", handleRealtimeProblemUpdate);
     };
-  }, [workerId]);
+  }, [socket, workerId]);
 
   // Define menuItems array
   const menuItems = [

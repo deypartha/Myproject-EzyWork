@@ -119,37 +119,6 @@ function Payment() {
         throw new Error(orderData.message || "Failed to create payment order");
       }
 
-      // Handle mock mode (when credentials are invalid)
-      if (orderData.isMockMode) {
-        console.log("🎭 MOCK MODE: Simulating payment...");
-        alert("💡 Running in Mock Mode\n\nThis is a test payment that will succeed without real Razorpay credentials.\n\nWhen you add real credentials, it will use Razorpay.");
-        
-        // Simulate payment success after 2 seconds
-        setTimeout(async () => {
-          try {
-            if (problemId) {
-              await fetch(`${API_BASE_URL}/api/problems/${problemId}/payment-success`, {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  paymentId: `mock_payment_${Date.now()}`,
-                  amount: parsedAmount,
-                }),
-              });
-            }
-
-            alert("✅ Mock Payment Successful!");
-            navigate("/user");
-          } catch (error) {
-            console.error("Mock payment update failed:", error);
-            alert("Mock payment simulation complete. Please refresh to see updates.");
-          } finally {
-            setLoading(false);
-          }
-        }, 2000);
-        return;
-      }
-
       const scriptLoaded = await loadRazorpayScript();
       if (!scriptLoaded) {
         throw new Error("Failed to load Razorpay SDK");
@@ -166,7 +135,6 @@ function Payment() {
         currency: orderData.currency || "INR",
         name: "EzyWork",
         description: problem?.title || "Service Payment",
-        order_id: orderData.orderId,
         handler: async function (response) {
           try {
             if (problemId) {
@@ -174,7 +142,7 @@ function Payment() {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                  paymentId: response.razorpay_payment_id,
+                  paymentId: response.razorpay_payment_id || `dummy_pay_${Date.now()}`,
                   amount: parsedAmount,
                 }),
               });
@@ -202,6 +170,11 @@ function Payment() {
           },
         },
       };
+
+      // Only pass order_id if we are NOT in mock mode and have a valid order ID
+      if (!orderData.isMockMode && orderData.orderId) {
+        options.order_id = orderData.orderId;
+      }
 
       const razorpay = new window.Razorpay(options);
       razorpay.open();

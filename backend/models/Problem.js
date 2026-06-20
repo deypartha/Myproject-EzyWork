@@ -30,7 +30,7 @@ const problemSchema = new mongoose.Schema({
   assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: "Worker" },
   amount: { type: Number },
   otp: { type: String },
-  paymentMethod: { type: String, enum: ["Pay Now", "Pay Later"] },
+  paymentMethod: { type: String, enum: ["Pay Now", "Pay Later", "Razorpay"] },
   paymentStatus: {
     type: String,
     enum: ["pending", "completed", "failed"],

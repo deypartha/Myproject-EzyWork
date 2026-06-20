@@ -136,7 +136,7 @@ export const AuthProvider = ({ children }) => {
   // Signup function
   const signup = async (name, email, password, role) => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/api/auth/signup`, {
+      const response = await axios.post(`${API_BASE_URL}/api/auth/signup `, {
         name,
         email,
         password,

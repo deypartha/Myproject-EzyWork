@@ -42,6 +42,7 @@ function User() {
   const [currentProblemId, setCurrentProblemId] = useState(null);
   const [userProblems, setUserProblems] = useState([]);
   const [currentProblem, setCurrentProblem] = useState(null);
+  const [socket, setSocket] = useState(null);
 
   const parseAmount = (value) => {
     if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -60,7 +61,7 @@ function User() {
     },
     {
       question: "What payment methods are accepted?",
-      answer: "We accept multiple payment methods: UPI (Google Pay, PhonePe, Paytm), Credit/Debit Cards, Net Banking, and Cash on Completion. You can choose 'Pay Now' or 'Pay Later' options."
+      answer: "We accept secure online payments via Razorpay (supporting UPI, Cards, Net Banking, and wallets)."
     },
     {
       question: "How do I rate a worker?",
@@ -237,7 +238,8 @@ function User() {
             worker.yearsOfExperience || 0,
 
           allSkills:
-            worker.typeOfWork || []
+            worker.typeOfWork || [],
+          isOnline: worker.isOnline || false,
         }));
 
       setWorkerSuggestions(
@@ -678,89 +680,159 @@ function User() {
     }
   }, [step, currentProblemId]);
 
-  // While waiting for acceptance, keep polling the current problem so a reject
-  // or status reset returns the user to worker selection even if a socket event is missed.
+  // Initialize Socket.io Client and register connectivity loggers
   useEffect(() => {
-    if (step !== 3 || !currentProblemId) return;
+    const s = io(API_BASE_URL, {
+      transports: ["websocket", "polling"],
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+    });
+    setSocket(s);
+    socketRef.current = s;
 
-    let isActive = true;
+    s.on("connect", () => {
+      console.log("Socket connected! ID:", s.id);
+    });
 
-    const syncRequestStatus = async () => {
-      const problemData = await fetchCurrentProblem();
-      if (!isActive || !problemData) return;
+    s.on("disconnect", (reason) => {
+      console.log("Socket disconnected! Reason:", reason);
+    });
 
-      if (problemData.status === "open") {
-        setRequestNotice(
-          "The worker rejected your request. Please select another worker.",
-        );
-        setOtp("");
-        setSelectedWorker(null);
-        setCurrentProblem(null);
-        setStep(2);
-      }
-    };
-
-    syncRequestStatus();
-    const interval = setInterval(syncRequestStatus, 4000);
+    s.on("connect_error", (err) => {
+      console.error("Socket connection error:", err);
+    });
 
     return () => {
-      isActive = false;
-      clearInterval(interval);
+      s.disconnect();
     };
-  }, [step, currentProblemId]);
+  }, []);
 
-  // Initialize Socket
+  // Manage room joining on connect/reconnect/user changes
   useEffect(() => {
-    socketRef.current = io(API_BASE_URL);
-    if (user) {
+    if (!socket) return;
+
+    const joinUserRooms = () => {
+      if (!user) return;
       const rooms = new Set();
       if (user.id) rooms.add(`user-${user.id}`);
       if (user._id) rooms.add(`user-${user._id}`);
       if (user.email) rooms.add(`user-email-${user.email}`);
 
       rooms.forEach((room) => {
-        socketRef.current.emit("join-room", room);
+        socket.emit("join-room", room);
         console.log("Joined user room:", room);
       });
+    };
+
+    if (socket.connected) {
+      joinUserRooms();
     }
 
+    socket.on("connect", joinUserRooms);
     return () => {
-      socketRef.current.disconnect();
+      socket.off("connect", joinUserRooms);
     };
-  }, [user]);
+  }, [socket, user]);
+
+  // Poll problem status to handle any missed socket events
+  useEffect(() => {
+    if (!currentProblemId) return;
+    
+    // Poll when waiting for acceptance (step 3) or when job is in-progress (step 4)
+    if (step !== 3 && step !== 4) return;
+
+    let isActive = true;
+
+    const syncStatus = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/problems/${currentProblemId}`);
+        if (!res.ok) return;
+        const problemData = await res.json();
+        
+        if (!isActive) return;
+
+        // If in step 3 (waiting for accept) and worker accepted (status becomes "assigned")
+        if (step === 3 && problemData.status === "assigned") {
+          console.log("Polling Sync: Worker accepted the job request.");
+          setCurrentProblem(problemData);
+          if (problemData.assignedTo) {
+            setSelectedWorker({
+              id: problemData.assignedTo._id,
+              name: problemData.assignedTo.fullName || problemData.assignedTo.name,
+              contact: problemData.assignedTo.mobileNumber || problemData.assignedTo.email,
+              price: problemData.amount || selectedWorker?.price || "$100",
+            });
+          }
+          setStep(4);
+        }
+
+        // If in step 3 (waiting for accept) and worker rejected (status reverted to "open")
+        if (step === 3 && problemData.status === "open") {
+          console.log("Polling Sync: Worker rejected the job request.");
+          setRequestNotice(
+            "The worker rejected your request. Please select another worker.",
+          );
+          setOtp("");
+          setSelectedWorker(null);
+          setCurrentProblem(null);
+          setStep(2);
+        }
+
+        // If in step 4 (payment/in-progress) and job is completed by worker (status becomes "completed")
+        if (step === 4 && problemData.status === "completed" && problemData.paymentStatus !== "completed") {
+          console.log("Polling Sync: Job completed by worker. Navigating to payment...");
+          setCurrentProblem(problemData);
+          navigate("/payment", {
+            state: {
+              problem: problemData,
+              problemId: currentProblemId,
+              source: "problem-completed",
+            },
+          });
+        }
+      } catch (err) {
+        console.warn("Error polling problem status:", err);
+      }
+    };
+
+    syncStatus();
+    const interval = setInterval(syncStatus, 4000);
+
+    return () => {
+      isActive = false;
+      clearInterval(interval);
+    };
+  }, [step, currentProblemId, navigate, selectedWorker]);
 
   // Listen for Request Accepted
   useEffect(() => {
-    if (!socketRef.current) return;
+    if (!socket) return;
 
-    socketRef.current.on("request-accepted", (data) => {
+    const handleRequestAccepted = (data) => {
       console.log("Request Accepted:", data);
       setRequestNotice("");
       alert("Your worker request has been accepted! You can now proceed to payment.");
       
-      // Refresh current problem and go to payment step
       if (currentProblemId) {
         fetchCurrentProblem();
         setStep(4);
       }
-    });
-
-    return () => {
-      socketRef.current.off("request-accepted");
     };
-  }, [currentProblemId]);
+
+    socket.on("request-accepted", handleRequestAccepted);
+    return () => {
+      socket.off("request-accepted", handleRequestAccepted);
+    };
+  }, [socket, currentProblemId]);
 
   // Listen for Request Rejected
   useEffect(() => {
-    if (!socketRef.current) return;
+    if (!socket) return;
 
     const handleRequestRejected = (data) => {
       console.log("Request Rejected:", data);
-
-      const message =
-        data?.message ||
-        "The worker rejected your request. Please select another worker.";
-
+      const message = data?.message || "The worker rejected your request. Please select another worker.";
       setRequestNotice(message);
       setOtp("");
       setSelectedWorker(null);
@@ -770,36 +842,33 @@ function User() {
       alert(message);
     };
 
-    socketRef.current.on("request-rejected", handleRequestRejected);
-
+    socket.on("request-rejected", handleRequestRejected);
     return () => {
-      socketRef.current.off("request-rejected", handleRequestRejected);
+      socket.off("request-rejected", handleRequestRejected);
     };
-  }, [currentProblemId]);
+  }, [socket, currentProblemId]);
 
+  // Listen for Payment Updated
   useEffect(() => {
-    if (!socketRef.current) return;
+    if (!socket) return;
 
     const handlePaymentUpdated = (data) => {
       if (data?.problemId && data.problemId !== currentProblemId) return;
-
       fetchCurrentProblem();
-
       if (data?.problem?.paymentStatus === "completed") {
         alert(data?.message || "Payment completed successfully.");
       }
     };
 
-    socketRef.current.on("payment-updated", handlePaymentUpdated);
-
+    socket.on("payment-updated", handlePaymentUpdated);
     return () => {
-      socketRef.current.off("payment-updated", handlePaymentUpdated);
+      socket.off("payment-updated", handlePaymentUpdated);
     };
-  }, [currentProblemId]);
+  }, [socket, currentProblemId]);
 
   // Listen for OTP verification completion event from worker flow
   useEffect(() => {
-    if (!socketRef.current) return;
+    if (!socket) return;
 
     const handleOtpVerified = (data) => {
       console.log("OTP verified event received:", data);
@@ -813,12 +882,61 @@ function User() {
       });
     };
 
-    socketRef.current.on("otp-verified", handleOtpVerified);
-
+    socket.on("otp-verified", handleOtpVerified);
     return () => {
-      socketRef.current.off("otp-verified", handleOtpVerified);
+      socket.off("otp-verified", handleOtpVerified);
     };
-  }, [navigate, currentProblem, currentProblemId]);
+  }, [socket, navigate, currentProblem, currentProblemId]);
+
+  // Listen for Real-Time Worker Online/Offline changes
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleWorkerStatusChanged = (data) => {
+      console.log("Real-time worker status changed:", data);
+      
+      if (!data.isOnline) {
+        // Dynamically remove worker from list if they go offline
+        setWorkerSuggestions(prev => prev.filter(w => w.id !== data.workerId));
+      } else if (data.worker) {
+        // If a worker goes online, dynamically add them if their skills match the current search category
+        const workerSkills = data.worker.typeOfWork || [];
+        const isMatch = detectedSkill && workerSkills.some(skill => 
+          skill.toLowerCase() === detectedSkill.toLowerCase()
+        );
+
+        if (isMatch) {
+          setWorkerSuggestions(prev => {
+            const exists = prev.some(w => w.id === data.workerId);
+            if (exists) {
+              return prev.map(w => w.id === data.workerId ? { ...w, isOnline: true } : w);
+            }
+            // Add the newly online worker
+            const newWorker = {
+              id: data.worker._id,
+              name: data.worker.fullName || data.worker.name || "Unknown",
+              skill: data.worker.typeOfWork?.[0] || "General",
+              rating: 4.5,
+              distance: "N/A",
+              price: "$40 - $60",
+              contact: data.worker.mobileNumber || data.worker.number || "N/A",
+              location: data.worker.location || "Unknown",
+              image: null,
+              email: data.worker.email || "N/A",
+              allSkills: data.worker.typeOfWork || [],
+              isOnline: true,
+            };
+            return [...prev, newWorker];
+          });
+        }
+      }
+    };
+
+    socket.on("worker-status-changed", handleWorkerStatusChanged);
+    return () => {
+      socket.off("worker-status-changed", handleWorkerStatusChanged);
+    };
+  }, [socket, detectedSkill]);
 
   useEffect(() => {
     if (!currentProblem || !currentProblemId) return;
@@ -1093,9 +1211,19 @@ function User() {
                       {worker.name.charAt(0)}
                     </div>
                     <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-gray-800">
-                        {worker.name}
-                      </h3>
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <h3 className="text-lg font-semibold text-gray-800">
+                          {worker.name}
+                        </h3>
+                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold ${
+                          worker.isOnline 
+                            ? 'bg-green-100 text-green-800' 
+                            : 'bg-red-100 text-red-800'
+                        }`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${worker.isOnline ? 'bg-green-500' : 'bg-red-500'}`} />
+                          {worker.isOnline ? 'Online' : 'Offline'}
+                        </span>
+                      </div>
                       <p className="text-gray-600 text-sm">{worker.skill}</p>
                     </div>
                   </div>
@@ -1246,20 +1374,14 @@ function User() {
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-3">
+            {/* payment */}
+            <div className="flex flex-col gap-3">
               <button
-                onClick={() => handlePayment("Pay Now")}
-                className="flex-1 bg-green-600 text-white px-6 py-3.5 rounded-lg hover:bg-green-700 font-semibold flex items-center justify-center gap-2 transition-all"
+                onClick={() => handlePayment("Razorpay")}
+                className="w-full bg-green-600 text-white px-6 py-3.5 rounded-lg hover:bg-green-700 font-semibold flex items-center justify-center gap-2 transition-all"
               >
                 <FaCreditCard className="text-lg" />
-                Pay Now
-              </button>
-              <button
-                onClick={() => handlePayment("Pay Later")}
-                className="flex-1 bg-gray-600 text-white px-6 py-3.5 rounded-lg hover:bg-gray-700 font-semibold flex items-center justify-center gap-2 transition-all"
-              >
-                <FaWallet className="text-lg" />
-                Pay Later
+                Pay with Razorpay
               </button>
             </div>
           </div>

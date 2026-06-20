@@ -207,7 +207,7 @@ export const bookProblem = async (req, res) => {
       return res.status(404).json({ message: "Problem not found" });
     }
 
-    if (problem.status !== "assigned") {
+    if (problem.status !== "assigned" && problem.status !== "in_progress") {
       return res.status(400).json({ message: "Problem not assigned yet" });
     }
 
@@ -217,7 +217,9 @@ export const bookProblem = async (req, res) => {
     if (parsedAmount !== null) {
       problem.amount = parsedAmount;
     }
-    problem.status = "in_progress";
+    if (problem.status === "assigned") {
+      problem.status = "in_progress";
+    }
     await problem.save();
     await emitProblemUpdate(req, problem, "job-status-updated", "Booking confirmed. Job is now in progress.");
 
@@ -414,14 +416,14 @@ export const createPaymentOrder = async (req, res) => {
       return res.status(400).json({ message: "Payment amount is missing" });
     }
 
-    const razorpayKeyId = process.env.RAZORPAY_KEY_ID?.trim();
+    const razorpayKeyId = process.env.RAZORPAY_KEY_ID?.trim() || "rzp_test_5g6TNuZJqA8y4T";
     const razorpayKeySecret = process.env.RAZORPAY_KEY_SECRET?.trim();
 
     console.log("🔐 Razorpay Credentials Check:");
     console.log(
       "  Key ID present:",
-      !!razorpayKeyId,
-      `(length: ${razorpayKeyId?.length})`,
+      !!process.env.RAZORPAY_KEY_ID,
+      `(length: ${process.env.RAZORPAY_KEY_ID?.length})`,
     );
     console.log(
       "  Key Secret present:",
@@ -429,16 +431,14 @@ export const createPaymentOrder = async (req, res) => {
       `(length: ${razorpayKeySecret?.length})`,
     );
 
-    if (!razorpayKeyId || !razorpayKeySecret) {
-      console.log("⚠️  Using MOCK payment mode (credentials missing)");
-      const mockOrderId = `order_mock_${Date.now()}_${Math.random()
-        .toString(36)
-        .substr(2, 9)}`;
+    if (!process.env.RAZORPAY_KEY_ID || !razorpayKeySecret) {
+      console.log("⚠️  Using Razorpay Test API in client-side capture mode (credentials missing or incomplete)");
+      const mockOrderId = `order_mock_${Date.now()}`;
       return res.json({
         orderId: mockOrderId,
         amount: amountInRupees,
         currency: "INR",
-        keyId: "pk_test_mock",
+        keyId: razorpayKeyId,
         isMockMode: true,
         problem,
       });
@@ -519,10 +519,7 @@ export const getPaymentConfig = async (req, res) => {
       return res.status(400).json({ message: "Payment amount is missing" });
     }
 
-    const razorpayKeyId = process.env.RAZORPAY_KEY_ID?.trim();
-    if (!razorpayKeyId) {
-      return res.status(500).json({ message: "Razorpay key id is missing" });
-    }
+    const razorpayKeyId = process.env.RAZORPAY_KEY_ID?.trim() || "rzp_test_5g6TNuZJqA8y4T";
 
     return res.json({
       keyId: razorpayKeyId,
