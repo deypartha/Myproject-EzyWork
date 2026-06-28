@@ -231,6 +231,15 @@ const addWorkerDetails = async (req, res) => {
       mobileNumber,
     } = req.body;
 
+    if (!email) {
+      return res
+        .status(httpStatus.BAD_REQUEST)
+        .json({ message: "Email is required to save worker details" });
+    }
+
+    const selectedType = Array.isArray(typeOfWork) ? typeOfWork[0] : typeOfWork;
+    const parsedExp = yearsOfExperience !== "" && yearsOfExperience !== undefined && yearsOfExperience !== null ? Number(yearsOfExperience) : 0;
+
     let worker = await Worker.findOne({ email });
 
     if (!worker) {
@@ -241,19 +250,21 @@ const addWorkerDetails = async (req, res) => {
         email,
         password: hashedPassword,
         number: mobileNumber || "0000000000",
-        fullName,
-        location,
-        yearsOfExperience,
-        typeOfWork,
-        mobileNumber,
+        fullName: fullName || "Worker",
+        location: location || "",
+        yearsOfExperience: isNaN(parsedExp) ? 0 : parsedExp,
+        typeOfWork: selectedType || "Worker",
+        mobileNumber: mobileNumber || "",
       });
     } else {
       // Update existing worker
-      worker.fullName = fullName;
-      worker.location = location;
-      worker.yearsOfExperience = yearsOfExperience;
-      worker.typeOfWork = typeOfWork;
-      worker.mobileNumber = mobileNumber;
+      worker.name = fullName || worker.name || "Worker";
+      worker.fullName = fullName || worker.fullName || "Worker";
+      worker.location = location !== undefined ? location : worker.location;
+      worker.yearsOfExperience = isNaN(parsedExp) ? (worker.yearsOfExperience || 0) : parsedExp;
+      worker.typeOfWork = selectedType || worker.typeOfWork || "Worker";
+      worker.mobileNumber = mobileNumber !== undefined ? mobileNumber : worker.mobileNumber;
+      worker.number = mobileNumber || worker.number || "0000000000";
     }
 
     await worker.save();
@@ -261,6 +272,7 @@ const addWorkerDetails = async (req, res) => {
       .status(httpStatus.OK)
       .json({ message: "Worker details saved successfully", worker });
   } catch (error) {
+    console.error("Error in addWorkerDetails:", error);
     res.status(httpStatus.INTERNAL_SERVER_ERROR).json({
       message: "An error occurred while updating worker details",
       error: error.message,

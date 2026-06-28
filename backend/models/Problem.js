@@ -41,6 +41,18 @@ const problemSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
   assignedAt: { type: Date },
   completedAt: { type: Date },
+  isVerified: { type: Boolean, default: false },
+  verificationDetails: {
+    problemType: String,
+    severity: String,
+    urgency: String,
+    estimatedCost: String,
+    skillsRequired: [String],
+    keyIssues: [String],
+    recommendedWorkerTypes: [String],
+    confidence: Number,
+    usingFallback: Boolean,
+  },
 });
 
 export default mongoose.model("Problem", problemSchema);

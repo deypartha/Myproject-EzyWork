@@ -56,7 +56,7 @@ const emitProblemUpdate = async (req, problem, eventName, message) => {
 
 export const createProblem = async (req, res) => {
   try {
-    const { title, description, category, location, createdBy } = req.body;
+    const { title, description, category, location, createdBy, isVerified, verificationDetails } = req.body;
 
     const problem = new Problem({
       title,
@@ -65,6 +65,8 @@ export const createProblem = async (req, res) => {
       location,
       createdBy,
       status: "open",
+      isVerified: isVerified || false,
+      verificationDetails: verificationDetails || {},
     });
 
     await problem.save();
@@ -600,5 +602,218 @@ export const rejectProblem = async (req, res) => {
   } catch (error) {
     console.error("Failed to reject problem", error);
     res.status(500).json({ message: "Failed to reject problem" });
+  }
+};
+
+const SKILL_ALIASES = {
+  Plumber: ["plumber", "plumbing", "pipe", "leak", "tap", "drain", "water line", "toilet", "faucet", "ac", "air conditioner", "air conditioning", "hvac", "cooling", "not cooling", "ac repair", "ac service", "ac not working"],
+  Electrician: ["electrician", "electrical", "wiring", "wire", "switch", "socket", "power", "voltage"],
+  Cleaner: ["cleaner", "cleaning", "maid", "housekeeping", "sanitize", "wash", "deep clean"],
+  Painter: ["painter", "painting", "paint", "wall paint", "color", "colour"],
+  Carpenter: ["carpenter", "carpentry", "woodwork", "wood", "furniture", "door repair", "table repair"],
+  Welder: ["welder", "welding", "metal work", "gate repair", "grill repair", "iron work", "steel work"],
+  Mechanic: ["mechanic", "car repair", "bike repair", "vehicle repair", "engine", "car not starting", "not starting", "breakdown", "puncture"],
+  Driver: ["driver", "driving", "chauffeur", "pickup", "drop", "transport", "ride"],
+};
+
+const escapeRegExp = (value = "") =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const detectSkillLocally = (text = "") => {
+  const normalizedText = String(text).toLowerCase();
+  for (const [canonical, aliases] of Object.entries(SKILL_ALIASES)) {
+    for (const alias of aliases) {
+      if (normalizedText.includes(alias.toLowerCase())) {
+        return canonical;
+      }
+    }
+  }
+  return null;
+};
+
+export const verifyProblem = async (req, res) => {
+  try {
+    const { description, title } = req.body;
+    if (!description || !description.trim()) {
+      return res.status(400).json({
+        isValid: false,
+        message: "Problem description is required.",
+        reason: "Description is empty"
+      });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    let verification = null;
+    let usingFallback = false;
+
+    if (apiKey) {
+      try {
+        const prompt = `You are a home service request validator. Your task is to analyze a user's description of a home service problem and determine if it is a valid, genuine home service problem (e.g. plumbing, electrical, cleaning, painting, carpentry, welding, vehicle repair, or driver service).
+If it is a valid home service problem, extract its structured details.
+If it is vague, unrelated to home services (e.g. general chat, homework, code, business queries), or spam, mark it as invalid and provide a clear reason.
+
+The allowed worker types (recommendedWorkerTypes) are: ["Plumber", "Electrician", "Cleaner", "Painter", "Carpenter", "Welder", "Mechanic", "Driver"].
+
+Return a JSON object matching this schema exactly:
+{
+  "isValidProblem": boolean,
+  "problemType": string (specific type, e.g. "Pipe Leak", "AC Repair", "Deep Cleaning", "Fan Installation"),
+  "severity": "Low" | "Medium" | "High",
+  "urgency": "Can Wait" | "Normal" | "Urgent",
+  "estimatedCost": string (e.g. "$30-$80", "$100-$250"),
+  "skillsRequired": string[] (skills/specialties needed, e.g. ["Plumbing", "AC Repair", "Carpentry"]),
+  "keyIssues": string[] (bullet points of what is wrong),
+  "recommendedWorkerTypes": string[] (must be subset of the allowed worker types above, e.g. ["Plumber"]),
+  "confidence": number (confidence score between 0.0 and 1.0),
+  "reason": string (explain why it is invalid if isValidProblem is false, or empty string if valid)
+}
+
+Analyze this description: "${description}"`;
+
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: {
+                responseMimeType: "application/json",
+              },
+            }),
+          }
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          const responseText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (responseText) {
+            let cleanText = responseText.trim();
+            if (cleanText.startsWith("```json")) {
+              cleanText = cleanText.substring(7);
+            } else if (cleanText.startsWith("```")) {
+              cleanText = cleanText.substring(3);
+            }
+            if (cleanText.endsWith("```")) {
+              cleanText = cleanText.substring(0, cleanText.length - 3);
+            }
+            verification = JSON.parse(cleanText.trim());
+          }
+        } else {
+          console.warn(`Gemini API returned status ${response.status}. Falling back to keyword matching.`);
+        }
+      } catch (geminiError) {
+        console.error("Gemini API call or parsing failed:", geminiError);
+      }
+    } else {
+      console.warn("GEMINI_API_KEY is not defined. Using local fallback.");
+    }
+
+    // Fallback if Gemini key is missing, call failed, or parse failed
+    if (!verification) {
+      usingFallback = true;
+      const fallbackSkill = detectSkillLocally(description);
+      verification = {
+        isValidProblem: !!fallbackSkill,
+        problemType: fallbackSkill ? `${fallbackSkill} Issue` : "General Repair",
+        severity: "Medium",
+        urgency: "Normal",
+        estimatedCost: "$50-$120",
+        skillsRequired: fallbackSkill ? [fallbackSkill] : [],
+        keyIssues: ["Issue processed using local keyword matching fallback"],
+        recommendedWorkerTypes: fallbackSkill ? [fallbackSkill] : [],
+        confidence: 0.7,
+        reason: fallbackSkill ? "" : "Description is too vague or could not be matched to any supported home services."
+      };
+    }
+
+    if (!verification.isValidProblem) {
+      return res.status(400).json({
+        isValid: false,
+        message: "Problem verification failed",
+        reason: verification.reason || "The problem does not appear to be a valid home service request.",
+        verification
+      });
+    }
+
+    // Find online workers
+    let workers = await Worker.find({ isOnline: true }).select("-password");
+    if (workers.length === 0) {
+      console.log("No online workers found, querying all workers for easier testing/development");
+      workers = await Worker.find({}).select("-password");
+    }
+
+    // Calculate matchScore for each worker
+    const scoredWorkers = workers.map(worker => {
+      let score = 0;
+      const reasons = [];
+
+      // Worker type match (+30 points)
+      const recWorkerTypes = verification.recommendedWorkerTypes || [];
+      const isTypeMatch = recWorkerTypes.some(type =>
+        worker.typeOfWork && worker.typeOfWork.toLowerCase() === type.toLowerCase()
+      );
+      if (isTypeMatch) {
+        score += 30;
+        reasons.push("Recommended worker type match (+30)");
+      }
+
+      // Matching skills (+25 points each skill)
+      const skillsReq = verification.skillsRequired || [];
+      let skillsMatchedCount = 0;
+      skillsReq.forEach(skill => {
+        const hasSkill = (worker.skills && worker.skills.some(s => s.toLowerCase() === skill.toLowerCase())) ||
+                         (worker.typeOfWork && worker.typeOfWork.toLowerCase() === skill.toLowerCase());
+        if (hasSkill) {
+          score += 25;
+          skillsMatchedCount++;
+        }
+      });
+      if (skillsMatchedCount > 0) {
+        reasons.push(`Matched ${skillsMatchedCount} required skill(s) (+${skillsMatchedCount * 25})`);
+      }
+
+      // Experience (+5 points per year)
+      const exp = worker.yearsOfExperience || 0;
+      if (exp > 0) {
+        score += exp * 5;
+        reasons.push(`${exp} years of experience (+${exp * 5})`);
+      }
+
+      // Rating (+5 points per star, default is 4.5)
+      const rating = worker.rating || 4.5;
+      score += rating * 5;
+      reasons.push(`Rating of ${rating} stars (+${Math.round(rating * 5)})`);
+
+      const workerObj = worker.toObject();
+      workerObj.rating = rating;
+      workerObj.matchScore = score;
+      workerObj.scoreReason = reasons.join(", ");
+
+      return workerObj;
+    });
+
+    // Sort by matchScore descending and slice top 10
+    const suggestedWorkers = scoredWorkers
+      .sort((a, b) => b.matchScore - a.matchScore)
+      .slice(0, 10);
+
+    return res.status(200).json({
+      isValid: true,
+      message: "Problem verified successfully",
+      verification,
+      suggestedWorkers,
+      usingFallback
+    });
+
+  } catch (error) {
+    console.error("Error in verifyProblem controller:", error);
+    return res.status(500).json({
+      isValid: false,
+      message: "An internal error occurred during verification",
+      reason: error.message
+    });
   }
 };

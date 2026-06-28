@@ -5,10 +5,10 @@ const workerSchema = new Schema({
     password: { type: String, required: true },
     skills: { type: [String], default: [] },
     number: { type: String, required: true },
-    fullName: { type: String },
+    fullName: { type: String, required: true },
     location: { type: String },
     yearsOfExperience: { type: Number },
-    typeOfWork: { type: [String], default: [] },
+    typeOfWork: { type: String, required: true },
     isOnline: { type: Boolean, default: false },
     currentLocation: {
         latitude: { type: Number },

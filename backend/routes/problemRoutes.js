@@ -14,10 +14,12 @@ import {
   markPaymentSuccess,
   createPaymentOrder,
   getPaymentConfig,
+  verifyProblem,
 } from "../controllers/problemController.js";
 
 const router = express.Router();
 
+router.post("/verify", verifyProblem);
 router.post("/create", createProblem);
 router.get("/open", getOpenProblems);
 router.put("/:id/request", requestWorker);

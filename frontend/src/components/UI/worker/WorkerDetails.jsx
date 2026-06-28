@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Home } from "lucide-react";
 import { useAuth } from "../../../context/AuthContext";
-import API_BASE_URL from "../../../config/api";
+import API_BASE_URL from "../../../config/api.js";
 
 function WorkerDetails() {
   const navigate = useNavigate();
@@ -13,7 +13,7 @@ function WorkerDetails() {
     fullName: "",
     location: "",
     yearsOfExperience: "",
-    typeOfWork: [],
+    typeOfWork: "",
     mobileNumber: "",
     email: ""
   });
@@ -45,10 +45,9 @@ function WorkerDetails() {
   };
 
   const handleTypeOfWorkChange = (e) => {
-    const options = Array.from(e.target.selectedOptions, (option) => option.value);
     setWorkerDetails((prev) => ({
       ...prev,
-      typeOfWork: options,
+      typeOfWork: e.target.value,
     }));
   };
 
@@ -100,6 +99,7 @@ function WorkerDetails() {
             name="fullName"
             value={workerDetails.fullName}
             onChange={handleChange}
+            required
             className="px-4 py-3 bg-[#1e293b] border border-slate-700 text-gray-100 placeholder-gray-400 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
           />
           <input
@@ -133,7 +133,7 @@ function WorkerDetails() {
             placeholder="Enter your email id"
             name="email"
             value={workerDetails.email}
-            pattern="[a-zA-Z0-9.-_+%]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
+            pattern="[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
             onChange={handleChange}
             readOnly
             className="px-4 py-3 bg-[#1e293b] border border-slate-700 text-gray-100 placeholder-gray-400 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 cursor-not-allowed opacity-75" required></input>
@@ -141,6 +141,7 @@ function WorkerDetails() {
             name="typeOfWork"
             value={workerDetails.typeOfWork}
             onChange={handleTypeOfWorkChange}
+            required
             className="px-4 py-3 bg-[#1e293b] border border-slate-700 text-gray-100 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
           >
             <option value="" className="bg-[#1e293b]">Select type of work</option>

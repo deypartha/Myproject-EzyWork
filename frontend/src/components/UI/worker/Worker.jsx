@@ -733,7 +733,8 @@ export default function WorkerDashboard() {
           </div>
           <div className="flex items-center justify-between">
             <button onClick={() => setLocationModalOpen(true)} className="text-sm text-gray-600 hover:text-gray-80">⚙️ Settings</button>
-            
+            {/* show the designation for the worker */}
+            <p className="text-sm font-medium text-gray-700">{user.typeOfWork}</p>
           </div>
         </div>
       </aside>

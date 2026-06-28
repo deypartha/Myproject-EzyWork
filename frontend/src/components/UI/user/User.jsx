@@ -43,6 +43,10 @@ function User() {
   const [userProblems, setUserProblems] = useState([]);
   const [currentProblem, setCurrentProblem] = useState(null);
   const [socket, setSocket] = useState(null);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [verificationDetails, setVerificationDetails] = useState(null);
+  const [verificationError, setVerificationError] = useState("");
+  const [usingFallback, setUsingFallback] = useState(false);
 
   const parseAmount = (value) => {
     if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -129,137 +133,127 @@ function User() {
   }, [user]);
 
   const handleProblemSubmit = () => {
-  (async () => {
-    try {
-      const searchRes = await fetch(
-        `${API_BASE_URL}/api/workers/search?q=${encodeURIComponent(problem)}`
-      );
+    (async () => {
+      try {
+        setIsVerifying(true);
+        setVerificationError("");
+        setVerificationDetails(null);
+        setUsingFallback(false);
 
-      if (!searchRes.ok) {
-        const errorText = await searchRes.text();
-        throw new Error(errorText || "Failed to detect problem and find workers");
-      }
+        const verifyRes = await fetch(`${API_BASE_URL}/api/problems/verify`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            description: problem,
+            title: problem.substring(0, 50) + "..."
+          })
+        });
 
-      const payload = await searchRes.json();
-      const skill = payload?.detectedSkill || null;
-      setDetectedSkill(skill);
-
-      // ==========================
-      // Create Problem in Backend
-      // ==========================
-
-      let createdProblem = null;
-
-      if (user) {
-        try {
-          const res = await fetch(
-            `${API_BASE_URL}/api/problems/create`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json"
-              },
-              body: JSON.stringify({
-                title: problem.substring(0, 50) + "...",
-                description: problem,
-                category: skill || "General",
-                createdBy: user.id || user._id,
-                location: {
-                  city: "Unknown"
-                }
-              })
-            }
-          );
-
-          if (!res.ok) {
-            const errorText = await res.text();
-            console.log(
-              "Problem creation error:",
-              errorText
-            );
-          } else {
-            createdProblem = await res.json();
-
-            if (createdProblem?._id) {
-              setCurrentProblemId(createdProblem._id);
-            }
-          }
-        } catch (err) {
-          console.error(
-            "Failed to create problem:",
-            err
-          );
+        if (!verifyRes.ok) {
+          const errorData = await verifyRes.json();
+          setIsVerifying(false);
+          setVerificationError(errorData.reason || "The problem does not appear to be a valid home service request.");
+          return;
         }
-      }
 
-      const workers = Array.isArray(payload?.workers)
-        ? payload.workers
-        : [];
+        const verifyData = await verifyRes.json();
+        setIsVerifying(false);
 
-      // ==========================
-      // Transform Worker Data
-      // ==========================
+        if (!verifyData.isValid) {
+          setVerificationError(verifyData.reason || "The problem does not appear to be a valid home service request.");
+          return;
+        }
 
-      const transformedWorkers =
-        workers.map((worker) => ({
-          id: worker._id,
+        const verification = verifyData.verification;
+        setVerificationDetails(verification);
+        setUsingFallback(verifyData.usingFallback || false);
 
-          name:
-            worker.fullName ||
-            worker.name ||
-            "Unknown",
+        // Set detected category skill for frontend UI
+        const mainSkill = (verification.recommendedWorkerTypes && verification.recommendedWorkerTypes[0]) || "General";
+        setDetectedSkill(mainSkill);
 
-          skill:
-            worker.typeOfWork?.[0] ||
-            "General",
+        // ==========================
+        // Create Problem in Backend
+        // ==========================
 
-          rating: 4.5,
+        let createdProblem = null;
 
+        if (user) {
+          try {
+            const res = await fetch(
+              `${API_BASE_URL}/api/problems/create`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                  title: problem.substring(0, 50) + "...",
+                  description: problem,
+                  category: mainSkill,
+                  createdBy: user.id || user._id,
+                  location: {
+                    city: "Unknown"
+                  },
+                  isVerified: true,
+                  verificationDetails: verification
+                })
+              }
+            );
+
+            if (!res.ok) {
+              const errorText = await res.text();
+              console.log("Problem creation error:", errorText);
+            } else {
+              createdProblem = await res.json();
+              if (createdProblem?._id) {
+                setCurrentProblemId(createdProblem._id);
+              }
+            }
+          } catch (err) {
+            console.error("Failed to create problem:", err);
+          }
+        }
+
+        // Suggested workers from verification endpoint
+        const workers = Array.isArray(verifyData.suggestedWorkers)
+          ? verifyData.suggestedWorkers
+          : [];
+
+        // ==========================
+        // Transform Worker Data
+        // ==========================
+
+        const transformedWorkers = workers.map((worker) => ({
+          id: worker._id || worker.id,
+          name: worker.fullName || worker.name || "Unknown",
+          skill: (worker.typeOfWork && (Array.isArray(worker.typeOfWork) ? worker.typeOfWork[0] : worker.typeOfWork)) || "General",
+          rating: worker.rating || 4.5,
           distance: "N/A",
-
-          price: "$40 - $60",
-
-          contact:
-            worker.mobileNumber ||
-            worker.number ||
-            "N/A",
-
-          location:
-            worker.location ||
-            "Unknown",
-
+          price: verification.estimatedCost || "$40 - $60",
+          contact: worker.mobileNumber || worker.number || "N/A",
+          location: worker.location || "Unknown",
           image: null,
-
-          email:
-            worker.email ||
-            "N/A",
-
-          yearsOfExperience:
-            worker.yearsOfExperience || 0,
-
-          allSkills:
-            worker.typeOfWork || [],
+          email: worker.email || "N/A",
+          yearsOfExperience: worker.yearsOfExperience || 0,
+          allSkills: worker.skills || [],
           isOnline: worker.isOnline || false,
+          matchScore: worker.matchScore,
+          scoreReason: worker.scoreReason
         }));
 
-      setWorkerSuggestions(
-        transformedWorkers
-      );
+        setWorkerSuggestions(transformedWorkers);
+        setStep(2);
 
-      setStep(2);
-
-    } catch (error) {
-      console.error(
-        "Error in handleProblemSubmit:",
-        error
-      );
-
-      alert(
-        "Failed to process problem. Please try again."
-      );
-    }
-  })();
-};
+      } catch (error) {
+        setIsVerifying(false);
+        console.error("Error in handleProblemSubmit:", error);
+        alert("Failed to process problem. Please try again.");
+      }
+    })();
+  };
 
   const handleVoiceSubmit = async () => {
     if (isTranscribing) {
@@ -1164,13 +1158,34 @@ function User() {
                 </div>
               )}
 
+              {/* Verification Error */}
+              {verificationError && (
+                <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4 flex gap-3 items-start animate-fade-in">
+                  <FaExclamationTriangle className="text-red-500 text-xl mt-0.5 shrink-0" />
+                  <div>
+                    <h4 className="text-red-800 font-bold text-sm md:text-base">Problem Rejected by Verification AI</h4>
+                    <p className="text-red-700 text-sm mt-1">{verificationError}</p>
+                    <div className="text-xs text-red-500 mt-2 font-medium">
+                      💡 Tip: Please describe a valid home service issue (e.g. leaking tap, broken electrical outlet, cooling/heating issues, painting, cleaning) with more specific details.
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Submit Button */}
               <button
                 onClick={handleProblemSubmit}
-                disabled={!problem.trim()}
-                className="w-full bg-linear-to-r from-blue-600 to-blue-700 text-white px-8 py-4 rounded-xl hover:from-blue-700 hover:to-blue-800 font-semibold text-lg shadow-lg hover:shadow-xl transition-all disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed"
+                disabled={!problem.trim() || isVerifying}
+                className="w-full bg-linear-to-r from-blue-600 to-blue-700 text-white px-8 py-4 rounded-xl hover:from-blue-700 hover:to-blue-800 font-semibold text-lg shadow-lg hover:shadow-xl transition-all disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                Find Workers →
+                {isVerifying ? (
+                  <>
+                    <span className="inline-block w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Verifying problem with Gemini AI...
+                  </>
+                ) : (
+                  <>Find Workers →</>
+                )}
               </button>
             </div>
           </div>
@@ -1200,50 +1215,119 @@ function User() {
               </p>
             </div>
 
+            {/* AI Verification Summary Banner */}
+            {verificationDetails && (
+              <div className="mb-8 p-6 bg-blue-400 border border-blue-200 rounded-2xl animate-fade-in">
+                <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
+                  <h3 className="text-lg font-bold text-blue-950 flex items-center gap-2">
+                    <span>🛡️ AI Verification Summary</span>
+                    {usingFallback && (
+                      <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full font-medium">
+                        Fallback Mode
+                      </span>
+                    )}
+                  </h3>
+                  <div className="text-xs font-semibold text-blue-700 bg-blue-100 px-2.5 py-1 rounded-lg">
+                    Confidence: {Math.round((verificationDetails.confidence || 0) * 100)}%
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+                  <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-xs">
+                    <span className="text-xs text-gray-500 block">Problem Type</span>
+                    <span className="font-bold text-gray-800 text-sm">{verificationDetails.problemType}</span>
+                  </div>
+                  <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-xs">
+                    <span className="text-xs text-gray-500 block">Severity</span>
+                    <span className={`font-bold text-sm ${
+                      verificationDetails.severity === 'High' ? 'text-red-600' :
+                      verificationDetails.severity === 'Medium' ? 'text-orange-600' : 'text-green-600'
+                    }`}>{verificationDetails.severity}</span>
+                  </div>
+                  <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-xs">
+                    <span className="text-xs text-gray-500 block">Urgency</span>
+                    <span className={`font-bold text-sm ${
+                      verificationDetails.urgency === 'Urgent' ? 'text-red-600' : 'text-gray-700'
+                    }`}>{verificationDetails.urgency}</span>
+                  </div>
+                  <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-xs">
+                    <span className="text-xs text-gray-500 block">Est. Cost Range</span>
+                    <span className="font-bold text-green-700 text-sm">{verificationDetails.estimatedCost}</span>
+                  </div>
+                </div>
+
+                {verificationDetails.keyIssues && verificationDetails.keyIssues.length > 0 && (
+                  <div className="text-sm">
+                    <span className="font-semibold text-blue-950 block mb-1">Key Issues Identified:</span>
+                    <ul className="list-disc pl-5 text-gray-700 space-y-0.5">
+                      {verificationDetails.keyIssues.map((issue, idx) => (
+                        <li key={idx}>{issue}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {workerSuggestions.map((worker) => (
                 <div
                   key={worker.id}
-                  className="bg-white border border-gray-200 rounded-lg p-5 hover:border-blue-500 hover:shadow-md transition-all"
+                  className="bg-white border border-gray-200 rounded-lg p-5 hover:border-blue-500 hover:shadow-md transition-all flex flex-col justify-between"
                 >
-                  <div className="flex items-center gap-3 mb-4 pb-4 border-b border-gray-100">
-                    <div className="w-14 h-14 bg-blue-600 rounded-full flex items-center justify-center text-white text-xl font-semibold">
-                      {worker.name.charAt(0)}
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <h3 className="text-lg font-semibold text-gray-800">
-                          {worker.name}
-                        </h3>
-                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold ${
-                          worker.isOnline 
-                            ? 'bg-green-100 text-green-800' 
-                            : 'bg-red-100 text-red-800'
-                        }`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${worker.isOnline ? 'bg-green-500' : 'bg-red-500'}`} />
-                          {worker.isOnline ? 'Online' : 'Offline'}
-                        </span>
+                  <div>
+                    <div className="flex items-center gap-3 mb-4 pb-4 border-b border-gray-100">
+                      <div className="w-14 h-14 bg-blue-600 rounded-full flex items-center justify-center text-white text-xl font-semibold">
+                        {worker.name.charAt(0)}
                       </div>
-                      <p className="text-gray-600 text-sm">{worker.skill}</p>
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <h3 className="text-lg font-semibold text-gray-800">
+                            {worker.name}
+                          </h3>
+                          <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold ${
+                            worker.isOnline 
+                              ? 'bg-green-100 text-green-800' 
+                              : 'bg-red-100 text-red-800'
+                          }`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${worker.isOnline ? 'bg-green-500' : 'bg-red-500'}`} />
+                            {worker.isOnline ? 'Online' : 'Offline'}
+                          </span>
+                        </div>
+                        <p className="text-gray-600 text-sm">{worker.skill}</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2.5 mb-4">
+                      <div className="flex items-center gap-2 text-sm">
+                        <FaStar className="text-yellow-500 text-base" />
+                        <span className="font-medium text-gray-700">{worker.rating}</span>
+                        <span className="text-gray-500">rating</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm">
+                        <FaMapMarkerAlt className="text-gray-500 text-base" />
+                        <span className="text-gray-700">{worker.distance}</span>
+                      </div>
+                      <div className="bg-gray-50 border border-gray-200 rounded-md px-3 py-2">
+                        <span className="text-gray-800 font-semibold text-sm">{worker.price}</span>
+                      </div>
+
+                      {/* AI Matching Score Display */}
+                      {worker.matchScore !== undefined && (
+                        <div className="bg-gray-700 border border-green-100 rounded-lg p-2.5 text-xs text-green-500">
+                          <div className="flex items-center justify-between font-bold mb-1">
+                            <span>🎯 Match Score:</span>
+                            <span className="bg-green-200 text-green-900 px-1.5 py-0.5 rounded">{worker.matchScore} pts</span>
+                          </div>
+                          {worker.scoreReason && (
+                            <p className="text-gray-600 text-[10px] leading-tight">{worker.scoreReason}</p>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
 
-                  <div className="space-y-2.5 mb-4">
-                    <div className="flex items-center gap-2 text-sm">
-                      <FaStar className="text-yellow-500 text-base" />
-                      <span className="font-medium text-gray-700">{worker.rating}</span>
-                      <span className="text-gray-500">rating</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm">
-                      <FaMapMarkerAlt className="text-gray-500 text-base" />
-                      <span className="text-gray-700">{worker.distance}</span>
-                    </div>
-                    <div className="bg-gray-50 border border-gray-200 rounded-md px-3 py-2">
-                      <span className="text-gray-800 font-semibold text-sm">{worker.price}</span>
-                    </div>
-                  </div>
-
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 mt-4">
                     <button
                       onClick={() => handleWorkerSelect(worker)}
                       className="flex-1 bg-blue-600 text-white px-4 py-2.5 rounded-lg hover:bg-blue-700 font-medium text-sm transition-all"
