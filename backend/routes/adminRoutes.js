@@ -9,6 +9,7 @@ import {
   getWorkerById,
   updateWorker,
   deleteWorker,
+  getAllPayments,
   createAdminUser,
   getDashboardStats,
 } from "../controllers/adminController.js";
@@ -35,5 +36,8 @@ router.get("/workers", getAllWorkers);
 router.get("/workers/:id", getWorkerById);
 router.put("/workers/:id", updateWorker);
 router.delete("/workers/:id", deleteWorker);
+
+// Payments / Service Bookings Overview
+router.get("/payments", getAllPayments);
 
 export default router;

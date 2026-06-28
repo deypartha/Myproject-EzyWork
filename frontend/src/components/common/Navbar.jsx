@@ -2,7 +2,7 @@ import React from 'react'
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { Menu, X, LogOut, User as UserIcon, Moon, History } from 'lucide-react';
+import { Menu, X, LogOut, User as UserIcon, Moon, History, ShieldCheck } from 'lucide-react';
 function Navbar() {
   const navigate = useNavigate();
   const { user, logout, isAuthenticated } = useAuth();
@@ -72,6 +72,9 @@ function Navbar() {
             <button onClick={scrollToFeatures} className="hover:text-black transition-colors">
               Features
             </button>
+            <button onClick={() => navigate("/admin/login")} className="text-slate-400 hover:text-blue-400 font-medium transition-colors">
+              Admin Portal
+            </button>
           </nav>
 
           {/* Color mode toggle removed - app uses dark mode only */}
@@ -102,6 +105,18 @@ function Navbar() {
                     <UserIcon className="w-4 h-4" />
                     Profile
                   </button>
+                  {user.role === 'admin' && (
+                    <button
+                      onClick={() => {
+                        navigate('/admin/dashboard');
+                        setIsAccountOpen(false);
+                      }}
+                      className="w-full px-4 py-2 flex items-center gap-2 text-left text-blue-400 hover:bg-slate-800 transition-colors font-medium"
+                    >
+                      <ShieldCheck className="w-4 h-4" />
+                      Admin Dashboard
+                    </button>
+                  )}
                   <button
                     onClick={() => {
                       setShowBookingHistory(true);

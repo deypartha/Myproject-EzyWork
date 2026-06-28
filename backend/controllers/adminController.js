@@ -1,5 +1,6 @@
 import User from "../models/User.js";
 import Worker from "../models/Worker.js";
+import Problem from "../models/Problem.js";
 import bcrypt from "bcryptjs";
 
 // Get all users
@@ -144,10 +145,26 @@ export const deleteWorker = async (req, res) => {
   }
 };
 
+// Get all payments/problems for admin
+export const getAllPayments = async (req, res) => {
+  try {
+    const problems = await Problem.find()
+      .populate("createdBy", "name email")
+      .populate("assignedTo", "name email skills number")
+      .sort({ createdAt: -1 });
+    res.json({
+      msg: "Payments fetched successfully",
+      payments: problems,
+      total: problems.length,
+    });
+  } catch (err) {
+    res.status(500).json({ msg: err.message });
+  }
+};
+
 // Create admin user (one-time setup)
 export const createAdminUser = async (req, res) => {
   try {
-    // Check if admin already exists
     const existingAdmin = await User.findOne({ role: "admin" });
     if (existingAdmin) {
       return res.status(400).json({ msg: "Admin already exists" });
@@ -187,6 +204,11 @@ export const getDashboardStats = async (req, res) => {
   try {
     const totalUsers = await User.countDocuments({ role: "user" });
     const totalWorkers = await Worker.countDocuments();
+    const totalBookings = await Problem.countDocuments();
+
+    const completedPayments = await Problem.find({ paymentStatus: "completed" });
+    const totalRevenue = completedPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
+
     const recentUsers = await User.find({ role: "user" })
       .sort({ createdAt: -1 })
       .limit(5)
@@ -195,14 +217,22 @@ export const getDashboardStats = async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(5)
       .select("-password");
+    const recentPayments = await Problem.find()
+      .populate("createdBy", "name email")
+      .populate("assignedTo", "name email")
+      .sort({ createdAt: -1 })
+      .limit(5);
 
     res.json({
       msg: "Dashboard statistics fetched",
       stats: {
         totalUsers,
         totalWorkers,
+        totalBookings,
+        totalRevenue,
         recentUsers,
         recentWorkers,
+        recentPayments,
       },
     });
   } catch (err) {
